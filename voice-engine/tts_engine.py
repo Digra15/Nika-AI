@@ -43,6 +43,22 @@ def detect_text_language(text: str) -> str:
 
 _SATUAN = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"]
 
+_BULAN_ID = [
+    "",
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
+    "Mei",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
+]
+
 
 def _int_to_id_words(n: int) -> str:
     if n == 0:
@@ -58,32 +74,118 @@ def _int_to_id_words(n: int) -> str:
     if n < 20:
         return _SATUAN[n - 10] + " belas"
     if n < 100:
-        return (_SATUAN[n // 10] + " puluh " + _SATUAN[n % 10]).strip()
+        rem = n % 10
+        return (_SATUAN[n // 10] + " puluh" + (" " + _SATUAN[rem] if rem else "")).strip()
     if n < 200:
-        return ("seratus " + _int_to_id_words(n - 100)).strip()
+        rem = n - 100
+        return ("seratus" + (" " + _int_to_id_words(rem) if rem else "")).strip()
     if n < 1000:
-        return (_SATUAN[n // 100] + " ratus " + _int_to_id_words(n % 100)).strip()
+        rem = n % 100
+        return (_SATUAN[n // 100] + " ratus" + (" " + _int_to_id_words(rem) if rem else "")).strip()
     if n < 2000:
-        return ("seribu " + _int_to_id_words(n - 1000)).strip()
+        rem = n - 1000
+        return ("seribu" + (" " + _int_to_id_words(rem) if rem else "")).strip()
     if n < 1_000_000:
-        return (_int_to_id_words(n // 1000) + " ribu " + (_int_to_id_words(n % 1000) if n % 1000 else "")).strip()
+        rem = n % 1000
+        return (_int_to_id_words(n // 1000) + " ribu" + (" " + _int_to_id_words(rem) if rem else "")).strip()
     if n < 1_000_000_000:
-        return (_int_to_id_words(n // 1_000_000) + " juta " + (_int_to_id_words(n % 1_000_000) if n % 1_000_000 else "")).strip()
-    return str(n)
+        rem = n % 1_000_000
+        return (_int_to_id_words(n // 1_000_000) + " juta" + (" " + _int_to_id_words(rem) if rem else "")).strip()
+    if n < 1_000_000_000_000:
+        rem = n % 1_000_000_000
+        return (_int_to_id_words(n // 1_000_000_000) + " miliar" + (" " + _int_to_id_words(rem) if rem else "")).strip()
+    if n < 1_000_000_000_000_000:
+        rem = n % 1_000_000_000_000
+        return (_int_to_id_words(n // 1_000_000_000_000) + " triliun" + (" " + _int_to_id_words(rem) if rem else "")).strip()
+    return " ".join(_int_to_id_words(int(d)) for d in str(n))
+
+
+def _digits_to_id_words(digits: str) -> str:
+    return " ".join("nol" if d == "0" else _SATUAN[int(d)] for d in digits)
 
 
 def _normalize_id_numbers(text: str) -> str:
+    # 1. Currency: Rp 279.819 / Rp1.500.000
     text = re.sub(
-        r"Rp\.?\s*([\d.]+)",
-        lambda m: f"{_int_to_id_words(int(m.group(1).replace('.', '')))} rupiah"
-        if m.group(1).replace(".", "").isdigit()
-        else m.group(0),
+        r"\bRp\.?\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?",
+        lambda m: (
+            f"{_int_to_id_words(int(m.group(1).replace('.', '')))} rupiah"
+            + (f" {_int_to_id_words(int(m.group(2)))} sen" if m.group(2) and int(m.group(2)) > 0 else "")
+        ),
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"(\d+)\s*%", lambda m: f"{_int_to_id_words(int(m.group(1)))} persen", text)
+
+    # 2. Numeric dates: 13/08/2026 or 13-08-2026
+    def _date_repl(m: re.Match[str]) -> str:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= day <= 31 and 1 <= month <= 12:
+            return f"{_int_to_id_words(day)} {_BULAN_ID[month]} {_int_to_id_words(year)}"
+        return m.group(0)
+
+    text = re.sub(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b", _date_repl, text)
+
+    # 3. Time: 14:30 or 08:05
+    def _time_repl(m: re.Match[str]) -> str:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            if mm == 0:
+                return _int_to_id_words(hh)
+            mm_words = f"nol {_SATUAN[mm]}" if mm < 10 else _int_to_id_words(mm)
+            return f"{_int_to_id_words(hh)} {mm_words}"
+        return m.group(0)
+
+    text = re.sub(r"\b(\d{1,2}):(\d{2})\b", _time_repl, text)
+
+    # 4. Temperature & units
+    text = re.sub(r"°\s*C\b", " derajat celcius", text, flags=re.IGNORECASE)
+    text = re.sub(r"°\s*F\b", " derajat fahrenheit", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*%", lambda m: f"{m.group(1)} persen", text)
+
+    # 5. Common Indonesian abbreviations & units so TTS doesn't spell letters awkwardly
+    unit_map = {
+        r"\bWIB\b": "waktu indonesia barat",
+        r"\bWITA\b": "waktu indonesia tengah",
+        r"\bWIT\b": "waktu indonesia timur",
+        r"\bdll\.?": "dan lain lain",
+        r"\bdsb\.?": "dan sebagainya",
+        r"\bdst\.?": "dan seterusnya",
+        r"\bdkk\.?": "dan kawan kawan",
+        r"\b(\d+)\s*kg\b": r"\1 kilogram",
+        r"\b(\d+)\s*km\b": r"\1 kilometer",
+        r"\b(\d+)\s*cm\b": r"\1 sentimeter",
+        r"\b(\d+)\s*mm\b": r"\1 milimeter",
+        r"\b(\d+)\s*GB\b": r"\1 gigabita",
+        r"\b(\d+)\s*MB\b": r"\1 megabita",
+    }
+    for pat, rep in unit_map.items():
+        text = re.sub(pat, rep, text, flags=re.IGNORECASE)
+
+    # 6. Ordinals: ke-1, ke-2, ke-13
     text = re.sub(
-        r"\b(\d{1,9})\b",
+        r"\bke-(\d+)\b",
+        lambda m: f"ke{_int_to_id_words(int(m.group(1)))}",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 7. Thousand-separated numbers: 279.819 or 1.500.000
+    text = re.sub(
+        r"\b(\d{1,3}(?:\.\d{3})+)\b",
+        lambda m: _int_to_id_words(int(m.group(1).replace(".", ""))),
+        text,
+    )
+
+    # 8. Decimals with comma: 36,5 or 3,14
+    text = re.sub(
+        r"\b(\d+),(\d+)\b",
+        lambda m: f"{_int_to_id_words(int(m.group(1)))} koma {_digits_to_id_words(m.group(2))}",
+        text,
+    )
+
+    # 9. Remaining standalone integers (up to 15 digits)
+    text = re.sub(
+        r"\b(\d{1,15})\b",
         lambda m: _int_to_id_words(int(m.group(1))),
         text,
     )
