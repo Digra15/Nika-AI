@@ -10,6 +10,7 @@ import type {
   NikaMindState,
   PersonaConfig
 } from "../../shared/types/index.js";
+import { HUMANIZER_PROMPT_RULES } from "../ai/humanizer/ResponseHumanizer.js";
 
 interface PersistedMemoryData {
   mind: NikaMindState;
@@ -443,7 +444,7 @@ export class MemoryManager {
       `Use web_search or web_browse whenever the user asks about real-time information, news, current events, facts you are unsure of, or websites.`
     );
 
-    sections.push("", `[RESPONSE RULES]`, baseSystemPrompt);
+    sections.push("", HUMANIZER_PROMPT_RULES, "", `[RESPONSE RULES]`, baseSystemPrompt);
 
     return sections.filter((line) => line !== undefined).join("\n");
   }

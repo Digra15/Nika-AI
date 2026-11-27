@@ -8,6 +8,7 @@ import type {
   ToolDefinition
 } from "../../../shared/types/index.js";
 import { Logger } from "../../core/logging/Logger.js";
+import { humanizeForSpeech } from "../humanizer/ResponseHumanizer.js";
 import { OpenAICompatibleProvider } from "../providers/OpenAICompatibleProvider.js";
 import type { ToolRegistry } from "../tool-calling/ToolRegistry.js";
 
@@ -71,9 +72,9 @@ export class SentenceChunker {
         continue;
       }
 
-      if (this.buffer.length >= 28) {
+      if (this.buffer.length >= 120) {
         const clauseMatch = this.buffer.match(clauseRegex);
-        if (clauseMatch && clauseMatch.index !== undefined && clauseMatch.index >= 14) {
+        if (clauseMatch && clauseMatch.index !== undefined && clauseMatch.index >= 45) {
           const endIdx = clauseMatch.index + clauseMatch[0].length;
           const clause = this.buffer.slice(0, endIdx).trim();
           this.buffer = this.buffer.slice(endIdx);
@@ -233,7 +234,10 @@ export class NineRouterClient {
             params.onEmotion(emotion);
           });
           for (const s of sentences) {
-            params.onSentence(s);
+            const humanized = humanizeForSpeech(s);
+            if (humanized) {
+              params.onSentence(humanized);
+            }
           }
         }
       });
@@ -293,7 +297,10 @@ export class NineRouterClient {
         params.onEmotion(emotion);
       });
       if (tail) {
-        params.onSentence(tail);
+        const humanizedTail = humanizeForSpeech(tail);
+        if (humanizedTail) {
+          params.onSentence(humanizedTail);
+        }
       }
 
       const { emotion, cleanText } = parseEmotionPrefix(fullText);
@@ -301,10 +308,12 @@ export class NineRouterClient {
         detectedEmotion = emotion;
       }
 
+      const humanizedFull = humanizeForSpeech(cleanText) || cleanText.trim();
+
       finalAssistantMsg = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
-        content: cleanText.trim(),
+        content: humanizedFull,
         emotion: detectedEmotion,
         timestamp: Date.now()
       };

@@ -405,6 +405,7 @@ export class AudioPipeline {
     const sampleRate = Number(res.headers.get("X-Sample-Rate") || 22050);
     const reader = res.body.getReader();
     let leftoverByte: number | null = null;
+    let sentenceEndTime = 0;
 
     while (true) {
       if (params.signal?.aborted) {
@@ -441,9 +442,10 @@ export class AudioPipeline {
       source.buffer = audioBuf;
       source.connect(this.analyser);
 
-      const isFirstChunk = this.nextScheduleTime <= ctx.currentTime;
-      const startAt = isFirstChunk ? ctx.currentTime + 0.045 : this.nextScheduleTime;
+      const minStart = ctx.currentTime + 0.04;
+      const startAt = this.nextScheduleTime > minStart ? this.nextScheduleTime : minStart;
       this.nextScheduleTime = startAt + audioBuf.duration;
+      sentenceEndTime = this.nextScheduleTime;
 
       this.scheduledSources.add(source);
       this.isPlaying = true;
@@ -459,6 +461,27 @@ export class AudioPipeline {
       };
 
       source.start(startAt);
+    }
+
+    // Wait until this sentence finishes playing + a relaxed natural pause before resolving
+    // so the next queued sentence never chases or interrupts the current one.
+    if (sentenceEndTime > ctx.currentTime && !params.signal?.aborted) {
+      const remainingMs = Math.max(0, (sentenceEndTime - ctx.currentTime) * 1000) + 180;
+      await new Promise<void>((resolve) => {
+        if (params.signal?.aborted) {
+          resolve();
+          return;
+        }
+        const onAbort = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = window.setTimeout(() => {
+          params.signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, remainingMs);
+        params.signal?.addEventListener("abort", onAbort, { once: true });
+      });
     }
   }
 
