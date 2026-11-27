@@ -34,25 +34,43 @@ export class AgentBrowserService {
     this.executablePath = findSystemBrowserExecutable();
   }
 
-  private resolveCli(): { cmd: string; prefixArgs: string[] } {
-    const binName = process.platform === "win32" ? "agent-browser.cmd" : "agent-browser";
-    const localBin = path.join(this.projectRoot, "node_modules", ".bin", binName);
+  private resolveCli(): { cmd: string; prefixArgs: string[]; useShell: boolean } {
+    if (process.platform === "win32") {
+      const nativeExe = path.join(
+        this.projectRoot,
+        "node_modules",
+        "agent-browser",
+        "bin",
+        "agent-browser-win32-x64.exe"
+      );
+      if (fs.existsSync(nativeExe)) {
+        return { cmd: nativeExe, prefixArgs: [], useShell: false };
+      }
+      const localCmd = path.join(this.projectRoot, "node_modules", ".bin", "agent-browser.cmd");
+      if (fs.existsSync(localCmd)) {
+        return { cmd: localCmd, prefixArgs: [], useShell: true };
+      }
+      return { cmd: "npx.cmd", prefixArgs: ["--no-install", "agent-browser"], useShell: true };
+    }
+
+    const localBin = path.join(this.projectRoot, "node_modules", ".bin", "agent-browser");
     if (fs.existsSync(localBin)) {
-      return { cmd: localBin, prefixArgs: [] };
+      return { cmd: localBin, prefixArgs: [], useShell: false };
     }
     return {
-      cmd: process.platform === "win32" ? "npx.cmd" : "npx",
-      prefixArgs: ["--no-install", "agent-browser"]
+      cmd: "npx",
+      prefixArgs: ["--no-install", "agent-browser"],
+      useShell: false
     };
   }
 
   private async run(args: string[], timeoutMs = 25000): Promise<string> {
-    const { cmd, prefixArgs } = this.resolveCli();
+    const { cmd, prefixArgs, useShell } = this.resolveCli();
     const fullArgs = [
       ...prefixArgs,
       "--session",
       this.sessionName,
-      ...(this.executablePath ? ["--executable-path", this.executablePath] : []),
+      "--ignore-https-errors",
       ...args
     ];
 
@@ -62,7 +80,7 @@ export class AgentBrowserService {
         timeout: timeoutMs,
         maxBuffer: 2 * 1024 * 1024,
         windowsHide: true,
-        shell: process.platform === "win32" && cmd.endsWith(".cmd"),
+        shell: useShell,
         env: {
           ...process.env,
           ...(this.executablePath
@@ -84,17 +102,18 @@ export class AgentBrowserService {
     resultsText: string;
     interactiveRefs: string;
   }> {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
     await this.run(["open", url], 30000);
-    const [text, snapshot] = await Promise.all([
-      this.run(["get", "text", "body"], 15000).catch(() => ""),
-      this.run(["snapshot", "-i"], 15000).catch(() => "")
+    const [resultsOnly, bodyText, snapshot] = await Promise.all([
+      this.run(["get", "text", "#b_results"], 12000).catch(() => ""),
+      this.run(["get", "text", "body"], 12000).catch(() => ""),
+      this.run(["snapshot", "-i"], 12000).catch(() => "")
     ]);
 
     return {
       query,
       url,
-      resultsText: truncateText(text, 3200),
+      resultsText: truncateText(resultsOnly || bodyText, 3400),
       interactiveRefs: truncateText(snapshot, 1800)
     };
   }

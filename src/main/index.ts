@@ -135,65 +135,72 @@ function registerIpcHandlers(): void {
         userText: payload.text
       });
 
-      const assistantMsg = await aiClient.sendMessage({
-        userText: payload.text,
-        config: settings.ai,
-        systemPromptOverride,
-        toolRegistry,
-        onToken: (delta) => {
-          mainWindow?.webContents.send("nika:chat-stream", {
-            requestId: payload.requestId,
-            type: "token",
-            delta
-          });
-        },
-        onEmotion: (emotion) => {
-          mainWindow?.webContents.send("nika:chat-stream", {
-            requestId: payload.requestId,
-            type: "emotion",
-            emotion
-          });
-        },
-        onSentence: (sentence) => {
-          mainWindow?.webContents.send("nika:chat-stream", {
-            requestId: payload.requestId,
-            type: "sentence",
-            sentence
-          });
-        },
-        onToolCall: (tool) => {
-          mainWindow?.webContents.send("nika:chat-stream", {
-            requestId: payload.requestId,
-            type: "tool",
-            tool
-          });
+      try {
+        const assistantMsg = await aiClient.sendMessage({
+          userText: payload.text,
+          config: settings.ai,
+          systemPromptOverride,
+          toolRegistry,
+          onToken: (delta) => {
+            mainWindow?.webContents.send("nika:chat-stream", {
+              requestId: payload.requestId,
+              type: "token",
+              delta
+            });
+          },
+          onEmotion: (emotion) => {
+            mainWindow?.webContents.send("nika:chat-stream", {
+              requestId: payload.requestId,
+              type: "emotion",
+              emotion
+            });
+          },
+          onSentence: (sentence) => {
+            mainWindow?.webContents.send("nika:chat-stream", {
+              requestId: payload.requestId,
+              type: "sentence",
+              sentence
+            });
+          },
+          onToolCall: (tool) => {
+            mainWindow?.webContents.send("nika:chat-stream", {
+              requestId: payload.requestId,
+              type: "tool",
+              tool
+            });
+          }
+        });
+
+        memoryManager.appendHistory({
+          id: `user-${Date.now()}`,
+          role: "user",
+          content: payload.text,
+          timestamp: Date.now()
+        });
+        memoryManager.appendHistory(assistantMsg);
+        const mindAfterReply = memoryManager.updateMindFromAssistantEmotion(
+          assistantMsg.emotion ?? "neutral"
+        );
+
+        mainWindow?.webContents.send("nika:chat-stream", {
+          requestId: payload.requestId,
+          type: "mind",
+          mind: mindAfterReply
+        });
+
+        mainWindow?.webContents.send("nika:chat-stream", {
+          requestId: payload.requestId,
+          type: "done",
+          message: assistantMsg
+        });
+
+        return assistantMsg;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return null;
         }
-      });
-
-      memoryManager.appendHistory({
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: payload.text,
-        timestamp: Date.now()
-      });
-      memoryManager.appendHistory(assistantMsg);
-      const mindAfterReply = memoryManager.updateMindFromAssistantEmotion(
-        assistantMsg.emotion ?? "neutral"
-      );
-
-      mainWindow?.webContents.send("nika:chat-stream", {
-        requestId: payload.requestId,
-        type: "mind",
-        mind: mindAfterReply
-      });
-
-      mainWindow?.webContents.send("nika:chat-stream", {
-        requestId: payload.requestId,
-        type: "done",
-        message: assistantMsg
-      });
-
-      return assistantMsg;
+        throw err;
+      }
     }
   );
 

@@ -407,8 +407,14 @@ export class MemoryManager {
     const mind = this.data.mind;
     const relevantMemories = this.selectRelevantMemories(userText, 8);
 
+    const nowText = new Date().toLocaleString("id-ID", {
+      dateStyle: "full",
+      timeStyle: "short"
+    });
+
     const sections: string[] = [
       `[IDENTITY & PERSONA]`,
+      `Current Local Date & Time: ${nowText}`,
       `Name: ${persona.name || "NIKA"}`,
       `Call the user: ${persona.userCallName || "kamu"}`,
       `Personality: ${persona.personality}`,
