@@ -240,6 +240,134 @@ function buildMouthStages(
   });
 }
 
+interface FacePartSet {
+  eyebrows: HTMLCanvasElement;
+  eyesBase: HTMLCanvasElement;
+  iris: HTMLCanvasElement | null;
+  nose: HTMLCanvasElement;
+  blush: HTMLCanvasElement;
+  mouth: HTMLCanvasElement;
+}
+
+/**
+ * Separates an expression canvas into independent PSD layers (eyebrows, eyesBase,
+ * trackable iris, nose, cheek blush, and mouth) by comparing against headBlank.
+ */
+function extractFaceParts(
+  headBlank: HTMLCanvasElement,
+  exprCanvas: HTMLCanvasElement,
+  hasOpenEyes: boolean
+): FacePartSet {
+  const w = headBlank.width;
+  const h = headBlank.height;
+
+  const makeLayer = () => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    return c;
+  };
+
+  const eyebrows = makeLayer();
+  const eyesBase = makeLayer();
+  const iris = hasOpenEyes ? makeLayer() : null;
+  const nose = makeLayer();
+  const blush = makeLayer();
+  const mouth = makeLayer();
+
+  const bCtx = headBlank.getContext("2d");
+  const eCtx = exprCanvas.getContext("2d");
+  if (!bCtx || !eCtx) {
+    return { eyebrows, eyesBase, iris, nose, blush, mouth };
+  }
+
+  const bData = bCtx.getImageData(0, 0, w, h).data;
+  const eData = eCtx.getImageData(0, 0, w, h).data;
+
+  const browImg = eyebrows.getContext("2d")!.createImageData(w, h);
+  const eyeImg = eyesBase.getContext("2d")!.createImageData(w, h);
+  const irisImg = iris ? iris.getContext("2d")!.createImageData(w, h) : null;
+  const noseImg = nose.getContext("2d")!.createImageData(w, h);
+  const blushImg = blush.getContext("2d")!.createImageData(w, h);
+  const mouthImg = mouth.getContext("2d")!.createImageData(w, h);
+
+  const yMin = Math.floor(h * 0.17);
+  const yMax = Math.ceil(h * 0.37);
+  const xMin = Math.floor(w * 0.33);
+  const xMax = Math.ceil(w * 0.67);
+
+  for (let y = yMin; y < yMax; y++) {
+    const ny = y / h;
+    for (let x = xMin; x < xMax; x++) {
+      const idx = (y * w + x) * 4;
+      const ea = eData[idx + 3];
+      if (ea < 16) continue;
+
+      const dr = Math.abs(eData[idx] - bData[idx]);
+      const dg = Math.abs(eData[idx + 1] - bData[idx + 1]);
+      const db = Math.abs(eData[idx + 2] - bData[idx + 2]);
+      const diff = dr + dg + db;
+      if (diff <= 18) continue;
+
+      const nx = x / w;
+      const alpha = Math.min(255, Math.round(ea * Math.min(1, (diff - 14) / 28)));
+
+      let target: ImageData | null = null;
+      let r = eData[idx];
+      let g = eData[idx + 1];
+      let b = eData[idx + 2];
+      const outAlpha = alpha;
+
+      if (ny < 0.232) {
+        target = browImg;
+      } else if (ny < 0.282) {
+        const inLeftIrisBox = nx >= 0.382 && nx <= 0.434 && ny >= 0.244 && ny <= 0.278;
+        const inRightIrisBox = nx >= 0.566 && nx <= 0.618 && ny >= 0.244 && ny <= 0.278;
+        const maxC = Math.max(r, g, b);
+        const minC = Math.min(r, g, b);
+        const isBrightSclera = minC > 215 && maxC - minC < 26;
+        const isTopLash = ny < 0.248 && maxC < 95;
+
+        if (irisImg && (inLeftIrisBox || inRightIrisBox) && !isBrightSclera && !isTopLash) {
+          irisImg.data[idx] = r;
+          irisImg.data[idx + 1] = g;
+          irisImg.data[idx + 2] = b;
+          irisImg.data[idx + 3] = alpha;
+
+          target = eyeImg;
+          r = 250;
+          g = 247;
+          b = 253;
+        } else {
+          target = eyeImg;
+        }
+      } else if (ny < 0.305 && nx >= 0.472 && nx <= 0.528) {
+        target = noseImg;
+      } else if (ny >= 0.276 && ny < 0.316 && (nx < 0.468 || nx > 0.532)) {
+        target = blushImg;
+      } else if (ny >= 0.305) {
+        target = mouthImg;
+      }
+
+      if (target) {
+        target.data[idx] = r;
+        target.data[idx + 1] = g;
+        target.data[idx + 2] = b;
+        target.data[idx + 3] = outAlpha;
+      }
+    }
+  }
+
+  eyebrows.getContext("2d")!.putImageData(browImg, 0, 0);
+  eyesBase.getContext("2d")!.putImageData(eyeImg, 0, 0);
+  if (iris && irisImg) iris.getContext("2d")!.putImageData(irisImg, 0, 0);
+  nose.getContext("2d")!.putImageData(noseImg, 0, 0);
+  blush.getContext("2d")!.putImageData(blushImg, 0, 0);
+  mouth.getContext("2d")!.putImageData(mouthImg, 0, 0);
+
+  return { eyebrows, eyesBase, iris, nose, blush, mouth };
+}
+
 export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
   avatarState,
   emotion,
@@ -278,6 +406,7 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
     thinking: HTMLCanvasElement | null;
     sad: HTMLCanvasElement | null;
     angry: HTMLCanvasElement | null;
+    parts: Record<EmotionType, FacePartSet | null>;
   }>({
     ready: false,
     w: 896,
@@ -295,7 +424,16 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
     surprised: null,
     thinking: null,
     sad: null,
-    angry: null
+    angry: null,
+    parts: {
+      neutral: null,
+      happy: null,
+      laugh: null,
+      surprised: null,
+      thinking: null,
+      sad: null,
+      angry: null
+    }
   });
 
   useEffect(() => {
@@ -380,6 +518,16 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       const leftArm = cropPart(armsCutout, 0, 0, Math.floor(aw * 0.5), ah);
       const rightArm = cropPart(armsCutout, Math.floor(aw * 0.5), 0, Math.ceil(aw * 0.5), ah);
 
+      const parts: Record<EmotionType, FacePartSet | null> = {
+        neutral: extractFaceParts(headBlank, head, true),
+        happy: extractFaceParts(headBlank, happy, false),
+        laugh: extractFaceParts(headBlank, laugh, false),
+        surprised: extractFaceParts(headBlank, surprised, true),
+        thinking: extractFaceParts(headBlank, thinking, true),
+        sad: extractFaceParts(headBlank, sad, true),
+        angry: extractFaceParts(headBlank, angry, true)
+      };
+
       rigRef.current = {
         ready: true,
         w: torso.width,
@@ -397,7 +545,8 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
         surprised,
         thinking,
         sad,
-        angry
+        angry,
+        parts
       };
     });
 
@@ -443,6 +592,10 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       hairWindX: 0,
       leftArmRot: 0,
       rightArmRot: 0,
+      eyeLookX: 0,
+      eyeLookY: 0,
+      browY: 0,
+      blushMix: 0.2,
       talkMix: 0,
       happyMix: 0,
       volume: 0
@@ -679,6 +832,10 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       anim.hairWindX = lerp(anim.hairWindX, targets.hairWindX, delta * 6);
       anim.leftArmRot = lerp(anim.leftArmRot, targets.leftArmRot, delta * 7);
       anim.rightArmRot = lerp(anim.rightArmRot, targets.rightArmRot, delta * 7);
+      anim.eyeLookX = lerp(anim.eyeLookX, targets.eyeLookX, delta * 14);
+      anim.eyeLookY = lerp(anim.eyeLookY, targets.eyeLookY, delta * 14);
+      anim.browY = lerp(anim.browY, targets.browY, delta * 10);
+      anim.blushMix = lerp(anim.blushMix, targets.blushMix, delta * 6);
       anim.talkMix = lerp(anim.talkMix, targets.talkMix, delta * 34);
       anim.happyMix = lerp(anim.happyMix, targets.happyMix, delta * 12);
       anim.volume = lerp(anim.volume, mouth.volume, delta * 18);
@@ -741,29 +898,51 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       // 3a. Blank face base (skin + headphones + outer hair)
       ctx.drawImage(rig.headBlank, 0, 0);
 
-      // 3b. Active expression face layer (drawn underneath bangsFront)
-      const activeHead =
-        emo === "laugh" && rig.laugh
-          ? rig.laugh
-          : emo === "surprised" && rig.surprised
-            ? rig.surprised
-            : emo === "thinking" && rig.thinking
-              ? rig.thinking
-              : emo === "sad" && rig.sad
-                ? rig.sad
-                : emo === "angry" && rig.angry
-                  ? rig.angry
-                  : rig.head;
-      ctx.drawImage(activeHead, 0, 0);
-
-      // 3c. Happy Face Expression (clean inner-face blend)
-      if (anim.happyMix > 0.03) {
+      // 3b. Separated PSD Face Layers: Blush -> Nose -> Eyes Base -> Trackable Iris -> Eyebrows -> Mouth
+      const activeParts = rig.parts[emo] ?? rig.parts.neutral;
+      if (activeParts) {
+        // Cheek Blush (dynamic opacity from emotion & mood)
         ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(rig.w * 0.5, rig.h * 0.285, rig.w * 0.145, rig.h * 0.075, 0, 0, Math.PI * 2);
-        ctx.clip();
+        ctx.globalAlpha = Math.max(0.35, Math.min(1, anim.blushMix + 0.35));
+        ctx.drawImage(activeParts.blush, 0, 0);
+        ctx.restore();
+
+        // Nose (subtle 3D parallax)
+        ctx.drawImage(activeParts.nose, anim.headX * 0.12, 0);
+
+        // Eyes Base (sclera + eyelashes)
+        ctx.drawImage(activeParts.eyesBase, 0, 0);
+
+        // Trackable Irises / Pupils clipped inside eye openings
+        if (activeParts.iris) {
+          const eyeY = rig.h * 0.258;
+          const eyeRx = rig.w * 0.04;
+          const eyeRy = rig.h * 0.025;
+          for (const cx of [rig.w * 0.408, rig.w * 0.592]) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.ellipse(cx, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(activeParts.iris, anim.eyeLookX, anim.eyeLookY);
+            ctx.restore();
+          }
+        }
+
+        // Eyebrows (animated height per emotion)
+        ctx.drawImage(activeParts.eyebrows, 0, anim.browY);
+
+        // Expression Mouth (when not actively lip-syncing)
+        if (anim.talkMix < 0.18) {
+          ctx.drawImage(activeParts.mouth, 0, 0);
+        }
+      }
+
+      // 3c. Happy Face Blend (when idle + happy)
+      if (anim.happyMix > 0.03 && rig.parts.happy) {
+        ctx.save();
         ctx.globalAlpha = anim.happyMix;
-        ctx.drawImage(rig.happy, 0, 0);
+        ctx.drawImage(rig.parts.happy.eyesBase, 0, 0);
+        ctx.drawImage(rig.parts.happy.eyebrows, 0, anim.browY);
         ctx.restore();
       }
 
@@ -797,9 +976,9 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       }
 
       // 3e. 4-Stage Clean Lip-Sync Mouth (zero ghosting!)
-      if (anim.talkMix >= 0.18 && rig.mouthStages.length === 3) {
-        const stageIdx = anim.talkMix < 0.42 ? 0 : anim.talkMix < 0.72 ? 1 : 2;
-        const stageCanvas = rig.mouthStages[stageIdx];
+      const mouthStageIdx = ctrl.lipSync.getMouthStageIndex(anim.talkMix);
+      if (mouthStageIdx !== null && rig.mouthStages.length === 3) {
+        const stageCanvas = rig.mouthStages[mouthStageIdx];
         const mx = Math.round(rig.w * 0.5 - stageCanvas.width * 0.5);
         const my = Math.round(rig.h * 0.325 - stageCanvas.height * 0.5);
         ctx.drawImage(stageCanvas, mx, my);

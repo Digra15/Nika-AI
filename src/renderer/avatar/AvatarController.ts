@@ -20,6 +20,9 @@ export interface AvatarFrameTargets {
   hairWindX: number;
   leftArmRot: number;
   rightArmRot: number;
+  eyeLookX: number;
+  eyeLookY: number;
+  browY: number;
   talkMix: number;
   happyMix: number;
   blushMix: number;
@@ -228,6 +231,18 @@ export class EmotionAnimationController {
       hairWindX,
       leftArmRot,
       rightArmRot,
+      eyeLookX: Math.max(-1, Math.min(1, pointer.x)) * 5.5,
+      eyeLookY: Math.max(-1, Math.min(1, pointer.y)) * 3.5,
+      browY:
+        emotion === "surprised"
+          ? -5
+          : emotion === "happy" || emotion === "laugh"
+            ? -2.5
+            : emotion === "angry"
+              ? 3.5
+              : emotion === "sad"
+                ? 2.0
+                : 0,
       talkMix: lipSync.computeTarget(isTalking, emotion, mouth, t),
       happyMix: emotion === "happy" && !isTalking ? 1 : 0,
       blushMix: expression.resolveBlushIntensity(emotion, mood)

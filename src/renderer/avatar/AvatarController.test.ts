@@ -33,4 +33,21 @@ describe("AvatarController (5 avatar skills)", () => {
     });
     expect(Math.abs(targets.leftArmRot)).toBeGreaterThan(0.05);
   });
+
+  it("computes eye tracking and eyebrow offsets", () => {
+    const ctrl = new SpriteController();
+    const targets = ctrl.emotionAnim.computeTargets({
+      t: 1.0,
+      emotion: "surprised",
+      avatarState: "idle",
+      pointer: { x: 0.8, y: -0.5 },
+      mouth: { volume: 0, aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
+      lipSync: ctrl.lipSync,
+      expression: ctrl.expression,
+      gesture: ctrl.gesture,
+      nowMs: performance.now()
+    });
+    expect(targets.eyeLookX).toBeGreaterThan(3);
+    expect(targets.browY).toBeLessThan(0);
+  });
 });
