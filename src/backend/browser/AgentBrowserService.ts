@@ -170,6 +170,12 @@ export class AgentBrowserService {
     };
   }
 
+  isReady(): boolean {
+    const { cmd } = this.resolveCli();
+    const hasCli = cmd.includes("npx") || fs.existsSync(cmd);
+    return hasCli && Boolean(this.executablePath);
+  }
+
   async close(): Promise<void> {
     await this.run(["close"], 5000).catch(() => {});
   }

@@ -1,4 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Brain,
+  Check,
+  Cpu,
+  Mic,
+  Sliders,
+  Sparkles,
+  X
+} from "lucide-react";
 import { PERSONA_PRESETS } from "../../shared/personaPresets";
 import type {
   AIModelInfo,
@@ -8,11 +17,13 @@ import type {
   PersonaPresetId
 } from "../../shared/types/index";
 
+type SettingsTab = "ai" | "persona" | "voice" | "memory" | "system";
+
 interface SettingsModalProps {
   settings: AppSettings;
   models: AIModelInfo[];
   onClose: () => void;
-  onSave: (updated: AppSettings) => Promise<void>;
+  onLiveUpdate: (updated: AppSettings) => Promise<void>;
   onTestAndLoadModels: (aiConfig: AppSettings["ai"]) => Promise<{
     online: boolean;
     models: AIModelInfo[];
@@ -21,23 +32,33 @@ interface SettingsModalProps {
   onMindChange?: (mind: NikaMindState) => void;
 }
 
+const TABS: Array<{ id: SettingsTab; label: string; icon: React.ReactNode }> = [
+  { id: "ai", label: "AI & Model", icon: <Cpu size={15} /> },
+  { id: "persona", label: "Persona", icon: <Sparkles size={15} /> },
+  { id: "voice", label: "Voice & Audio", icon: <Mic size={15} /> },
+  { id: "memory", label: "Mood & Memory", icon: <Brain size={15} /> },
+  { id: "system", label: "Tampilan", icon: <Sliders size={15} /> }
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   models,
   onClose,
-  onSave,
+  onLiveUpdate,
   onTestAndLoadModels,
   onMindChange
 }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
   const [draft, setDraft] = useState<AppSettings>(() => structuredClone(settings));
   const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [syncState, setSyncState] = useState<"idle" | "saving" | "saved">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testingModels, setTestingModels] = useState(false);
   const [modelStatus, setModelStatus] = useState<string | null>(null);
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [mind, setMind] = useState<NikaMindState | null>(null);
   const [newMemoryText, setNewMemoryText] = useState("");
+  const debounceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     void navigator.mediaDevices.enumerateDevices().then((devices) => {
@@ -49,22 +70,74 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setMind(snap.mind);
       });
     }
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
   }, []);
+
+  const commitUpdate = async (next: AppSettings) => {
+    setSyncState("saving");
+    setSaveError(null);
+    try {
+      await onLiveUpdate(next);
+      setSyncState("saved");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+      setSyncState("idle");
+    }
+  };
+
+  const applyInstant = (next: AppSettings) => {
+    setDraft(next);
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    void commitUpdate(next);
+  };
+
+  const applyDebounced = (next: AppSettings) => {
+    setDraft(next);
+    setSyncState("saving");
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      void commitUpdate(next);
+    }, 280);
+  };
+
+  const handleTestModels = async () => {
+    setTestingModels(true);
+    setModelStatus(null);
+    try {
+      const result = await onTestAndLoadModels(draft.ai);
+      if (!result.online) {
+        setModelStatus(result.error || "9Router offline or API key rejected");
+      } else if (result.models.length === 0) {
+        setModelStatus("Connected, but 0 models returned by 9Router");
+      } else {
+        setModelStatus(`Terhubung — ${result.models.length} model tersedia`);
+      }
+    } finally {
+      setTestingModels(false);
+    }
+  };
 
   const handlePresetChange = (presetId: PersonaPresetId) => {
     const found = PERSONA_PRESETS.find((p) => p.id === presetId);
-    if (!found) {
-      setDraft({ ...draft, persona: { ...draft.persona, preset: presetId } });
-      return;
-    }
-    setDraft({
-      ...draft,
-      persona: {
-        ...draft.persona,
-        preset: presetId,
-        ...found.config
-      }
-    });
+    const next: AppSettings = found
+      ? {
+          ...draft,
+          persona: { ...draft.persona, preset: presetId, ...found.config }
+        }
+      : {
+          ...draft,
+          persona: { ...draft.persona, preset: presetId }
+        };
+    applyInstant(next);
   };
 
   const handleAddMemory = async () => {
@@ -101,480 +174,579 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onMindChange?.(reset);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await onSave(draft);
-      onClose();
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleTestModels = async () => {
-    setTestingModels(true);
-    setModelStatus(null);
-    try {
-      const result = await onTestAndLoadModels(draft.ai);
-      if (!result.online) {
-        setModelStatus(result.error || "9Router offline or API key rejected");
-      } else if (result.models.length === 0) {
-        setModelStatus("Connected, but 0 models returned by 9Router");
-      } else {
-        setModelStatus(`Connected — ${result.models.length} model(s) loaded`);
-      }
-    } finally {
-      setTestingModels(false);
-    }
-  };
+  const currentTabTitle = TABS.find((t) => t.id === activeTab)?.label ?? "Settings";
 
   return (
     <div className="nika-modal-backdrop" onClick={onClose}>
-      <div className="nika-modal" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ marginTop: 0, color: "#67e8f9" }}>NIKA Settings</h3>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <h4 style={{ margin: 0, color: "#c084fc" }}>9Router AI Gateway</h4>
-          <button
-            className="nika-btn"
-            type="button"
-            onClick={() => void handleTestModels()}
-            disabled={testingModels}
-          >
-            {testingModels ? "Loading..." : "Test & Load Models"}
-          </button>
-        </div>
-        {modelStatus && (
-          <div style={{ fontSize: 12, marginBottom: 10, color: "#67e8f9" }}>{modelStatus}</div>
-        )}
-        <div className="nika-field-grid">
-          <label className="nika-field">
-            Base URL
-            <input
-              className="nika-input"
-              value={draft.ai.baseUrl}
-              onChange={(e) =>
-                setDraft({ ...draft, ai: { ...draft.ai, baseUrl: e.target.value } })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            API Key
-            <input
-              className="nika-input"
-              type="password"
-              value={draft.ai.apiKey}
-              onChange={(e) =>
-                setDraft({ ...draft, ai: { ...draft.ai, apiKey: e.target.value } })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Model
-            <select
-              className="nika-select"
-              value={draft.ai.model}
-              onChange={(e) =>
-                setDraft({ ...draft, ai: { ...draft.ai, model: e.target.value } })
-              }
+      <div className="nika-settings-shell" onClick={(e) => e.stopPropagation()}>
+        <aside className="nika-settings-nav">
+          <div className="nika-settings-nav-title">Pengaturan NIKA</div>
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`nika-nav-item ${activeTab === tab.id ? "active" : ""}`}
+              onClick={() => setActiveTab(tab.id)}
             >
-              <option value="auto">auto (First Available)</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id} ({m.ownedBy})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="nika-field">
-            Temperature ({draft.ai.temperature})
-            <input
-              type="range"
-              min={0}
-              max={1.5}
-              step={0.05}
-              value={draft.ai.temperature}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  ai: { ...draft.ai, temperature: Number(e.target.value) }
-                })
-              }
-            />
-          </label>
-        </div>
-
-        <h4 style={{ marginBottom: 8, color: "#c084fc" }}>Local STT & VAD (100% Local)</h4>
-        <div className="nika-field-grid">
-          <label className="nika-field">
-            STT Language
-            <select
-              className="nika-select"
-              value={draft.voice.sttLanguage}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: {
-                    ...draft.voice,
-                    sttLanguage: e.target.value as AppSettings["voice"]["sttLanguage"]
-                  }
-                })
-              }
-            >
-              <option value="auto">Auto Detect (ID / EN)</option>
-              <option value="id">Indonesian (id)</option>
-              <option value="en">English (en)</option>
-            </select>
-          </label>
-          <label className="nika-field">
-            STT Model
-            <select
-              className="nika-select"
-              value={draft.voice.sttModel}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, sttModel: e.target.value }
-                })
-              }
-            >
-              <option value="sherpa-zipformer-id-en">Sherpa Streaming (ID + EN, Real-time)</option>
-              <option value="tiny">Whisper tiny (fastest)</option>
-              <option value="base">Whisper base</option>
-              <option value="small">Whisper small</option>
-              <option value="medium">Whisper medium</option>
-              <option value="large-v3-turbo">Whisper large-v3-turbo</option>
-            </select>
-          </label>
-          <label className="nika-field">
-            VAD Sensitivity ({draft.voice.vadThreshold})
-            <input
-              type="range"
-              min={0.2}
-              max={0.8}
-              step={0.05}
-              value={draft.voice.vadThreshold}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, vadThreshold: Number(e.target.value) }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            End-of-Speech Silence ({draft.voice.vadMinSilenceMs} ms)
-            <input
-              type="range"
-              min={250}
-              max={1000}
-              step={50}
-              value={draft.voice.vadMinSilenceMs}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, vadMinSilenceMs: Number(e.target.value) }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Microphone
-            <select
-              className="nika-select"
-              value={draft.voice.inputDeviceId}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, inputDeviceId: e.target.value }
-                })
-              }
-            >
-              <option value="default">System Default</option>
-              {audioInputs.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Mic ${d.deviceId.slice(0, 6)}`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="nika-field">
-            Wake Word
-            <input
-              className="nika-input"
-              value={draft.voice.wakeWord}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, wakeWord: e.target.value }
-                })
-              }
-            />
-          </label>
-        </div>
-
-        <h4 style={{ marginBottom: 8, color: "#c084fc" }}>Local TTS (100% Local)</h4>
-        <div className="nika-field-grid">
-          <label className="nika-field">
-            TTS Engine
-            <select
-              className="nika-select"
-              value={draft.voice.ttsEngine}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: {
-                    ...draft.voice,
-                    ttsEngine: e.target.value as AppSettings["voice"]["ttsEngine"]
-                  }
-                })
-              }
-            >
-              <option value="auto">Auto (Nika Pocket ID / Kokoro EN)</option>
-              <option value="pocket">Pocket TTS (Nika Voice Clone)</option>
-              <option value="piper">Piper TTS</option>
-              <option value="kokoro">Kokoro TTS</option>
-            </select>
-          </label>
-          <label className="nika-field">
-            Speaking Speed ({draft.voice.ttsSpeed}x)
-            <input
-              type="range"
-              min={0.6}
-              max={1.5}
-              step={0.05}
-              value={draft.voice.ttsSpeed}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, ttsSpeed: Number(e.target.value) }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Indonesian Voice (Piper)
-            <input
-              className="nika-input"
-              value={draft.voice.ttsVoiceId}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, ttsVoiceId: e.target.value }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            English Voice (Kokoro)
-            <input
-              className="nika-input"
-              value={draft.voice.ttsVoiceEn}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  voice: { ...draft.voice, ttsVoiceEn: e.target.value }
-                })
-              }
-            />
-          </label>
-        </div>
-
-        <h4 style={{ marginBottom: 8, color: "#c084fc" }}>Persona & Karakter Nika</h4>
-        <div className="nika-field-grid">
-          <label className="nika-field">
-            Preset Persona
-            <select
-              className="nika-select"
-              value={draft.persona.preset}
-              onChange={(e) => handlePresetChange(e.target.value as PersonaPresetId)}
-            >
-              {PERSONA_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <label className="nika-field">
-            Nama Karakter
-            <input
-              className="nika-input"
-              value={draft.persona.name}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  persona: { ...draft.persona, name: e.target.value }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Panggilan ke User
-            <input
-              className="nika-input"
-              value={draft.persona.userCallName}
-              placeholder="kamu / kakak / nama"
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  persona: { ...draft.persona, userCallName: e.target.value }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Kepribadian / Sifat
-            <input
-              className="nika-input"
-              value={draft.persona.personality}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  persona: { ...draft.persona, preset: "custom", personality: e.target.value }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Gaya Bicara
-            <input
-              className="nika-input"
-              value={draft.persona.speakingStyle}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  persona: { ...draft.persona, preset: "custom", speakingStyle: e.target.value }
-                })
-              }
-            />
-          </label>
-          <label className="nika-field">
-            Backstory Singkat
-            <input
-              className="nika-input"
-              value={draft.persona.backstory}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  persona: { ...draft.persona, preset: "custom", backstory: e.target.value }
-                })
-              }
-            />
-          </label>
-        </div>
-        <label className="nika-field" style={{ marginTop: 8 }}>
-          Instruksi Tambahan Persona
-          <input
-            className="nika-input"
-            value={draft.persona.customInstructions}
-            placeholder="Contoh: Suka bahas anime, jangan terlalu formal..."
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                persona: { ...draft.persona, customInstructions: e.target.value }
-              })
-            }
-          />
-        </label>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, marginBottom: 8 }}>
-          <h4 style={{ margin: 0, color: "#c084fc" }}>Mood, Perasaan & Memory</h4>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="nika-btn" type="button" onClick={() => void handleResetMind()}>
-              Reset Mood
+              {tab.icon}
+              <span>{tab.label}</span>
             </button>
-            {memories.length > 0 && (
-              <button className="nika-btn" type="button" onClick={() => void handleClearMemories()}>
-                Hapus Semua Memori
-              </button>
+          ))}
+        </aside>
+
+        <section className="nika-settings-body">
+          <header className="nika-settings-header">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: "#f8fafc" }}>
+                {currentTabTitle}
+              </span>
+              {syncState === "saving" && (
+                <span style={{ fontSize: 11.5, color: "#7dd3fc" }}>Menyimpan...</span>
+              )}
+              {syncState === "saved" && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 11.5,
+                    color: "#34d399"
+                  }}
+                >
+                  <Check size={12} /> Tersimpan real-time
+                </span>
+              )}
+            </div>
+            <button className="nika-btn" type="button" onClick={onClose} title="Tutup">
+              <X size={14} /> Tutup
+            </button>
+          </header>
+
+          <div className="nika-settings-content">
+            {saveError && (
+              <div
+                className="nika-card"
+                style={{ borderColor: "rgba(251,113,133,0.45)", color: "#fecdd3", fontSize: 12 }}
+              >
+                Gagal sinkron: {saveError}
+              </div>
+            )}
+
+            {activeTab === "ai" && (
+              <>
+                <div className="nika-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>9Router AI Gateway</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                      {modelStatus || "Uji koneksi & muat daftar model aktif"}
+                    </div>
+                  </div>
+                  <button
+                    className="nika-btn active"
+                    type="button"
+                    onClick={() => void handleTestModels()}
+                    disabled={testingModels}
+                  >
+                    {testingModels ? "Memuat..." : "Test & Load Models"}
+                  </button>
+                </div>
+
+                <div className="nika-field-grid">
+                  <label className="nika-field">
+                    Base URL
+                    <input
+                      className="nika-input"
+                      value={draft.ai.baseUrl}
+                      onChange={(e) =>
+                        applyDebounced({
+                          ...draft,
+                          ai: { ...draft.ai, baseUrl: e.target.value }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    API Key
+                    <input
+                      className="nika-input"
+                      type="password"
+                      value={draft.ai.apiKey}
+                      onChange={(e) =>
+                        applyDebounced({
+                          ...draft,
+                          ai: { ...draft.ai, apiKey: e.target.value }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    Model
+                    <select
+                      className="nika-select"
+                      value={draft.ai.model}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          ai: { ...draft.ai, model: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="auto">auto (First Available)</option>
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id} ({m.ownedBy})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    Reasoning Effort
+                    <select
+                      className="nika-select"
+                      value={draft.ai.reasoningEffort}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          ai: {
+                            ...draft.ai,
+                            reasoningEffort: e.target.value as AppSettings["ai"]["reasoningEffort"]
+                          }
+                        })
+                      }
+                    >
+                      <option value="none">None (Tercepat)</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    Temperature ({draft.ai.temperature})
+                    <input
+                      type="range"
+                      min={0}
+                      max={1.5}
+                      step={0.05}
+                      value={draft.ai.temperature}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          ai: { ...draft.ai, temperature: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    Max Tokens ({draft.ai.maxTokens})
+                    <input
+                      type="range"
+                      min={256}
+                      max={4096}
+                      step={128}
+                      value={draft.ai.maxTokens}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          ai: { ...draft.ai, maxTokens: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+
+            {activeTab === "persona" && (
+              <>
+                <div className="nika-field-grid">
+                  <label className="nika-field">
+                    Preset Persona
+                    <select
+                      className="nika-select"
+                      value={draft.persona.preset}
+                      onChange={(e) => handlePresetChange(e.target.value as PersonaPresetId)}
+                    >
+                      {PERSONA_PRESETS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    Nama Karakter
+                    <input
+                      className="nika-input"
+                      value={draft.persona.name}
+                      onChange={(e) =>
+                        applyDebounced({
+                          ...draft,
+                          persona: { ...draft.persona, name: e.target.value }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    Panggilan ke User
+                    <input
+                      className="nika-input"
+                      value={draft.persona.userCallName}
+                      placeholder="kamu / kakak / nama"
+                      onChange={(e) =>
+                        applyDebounced({
+                          ...draft,
+                          persona: { ...draft.persona, userCallName: e.target.value }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    Gaya Bicara
+                    <input
+                      className="nika-input"
+                      value={draft.persona.speakingStyle}
+                      onChange={(e) =>
+                        applyDebounced({
+                          ...draft,
+                          persona: {
+                            ...draft.persona,
+                            preset: "custom",
+                            speakingStyle: e.target.value
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="nika-field" style={{ marginBottom: 12 }}>
+                  Kepribadian / Sifat
+                  <textarea
+                    className="nika-textarea"
+                    value={draft.persona.personality}
+                    onChange={(e) =>
+                      applyDebounced({
+                        ...draft,
+                        persona: {
+                          ...draft.persona,
+                          preset: "custom",
+                          personality: e.target.value
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label className="nika-field" style={{ marginBottom: 12 }}>
+                  Backstory Singkat
+                  <textarea
+                    className="nika-textarea"
+                    value={draft.persona.backstory}
+                    onChange={(e) =>
+                      applyDebounced({
+                        ...draft,
+                        persona: {
+                          ...draft.persona,
+                          preset: "custom",
+                          backstory: e.target.value
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label className="nika-field">
+                  Instruksi Tambahan
+                  <input
+                    className="nika-input"
+                    value={draft.persona.customInstructions}
+                    placeholder="Contoh: Suka bahas game & anime, tetap santai..."
+                    onChange={(e) =>
+                      applyDebounced({
+                        ...draft,
+                        persona: { ...draft.persona, customInstructions: e.target.value }
+                      })
+                    }
+                  />
+                </label>
+              </>
+            )}
+
+            {activeTab === "voice" && (
+              <>
+                <div className="nika-field-grid">
+                  <label className="nika-field">
+                    STT Language
+                    <select
+                      className="nika-select"
+                      value={draft.voice.sttLanguage}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: {
+                            ...draft.voice,
+                            sttLanguage: e.target.value as AppSettings["voice"]["sttLanguage"]
+                          }
+                        })
+                      }
+                    >
+                      <option value="auto">Auto Detect (ID / EN)</option>
+                      <option value="id">Indonesian (id)</option>
+                      <option value="en">English (en)</option>
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    STT Model
+                    <select
+                      className="nika-select"
+                      value={draft.voice.sttModel}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, sttModel: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="sherpa-zipformer-id-en">
+                        Sherpa Streaming (ID + EN, Real-time)
+                      </option>
+                      <option value="tiny">Whisper tiny (fastest)</option>
+                      <option value="base">Whisper base</option>
+                      <option value="small">Whisper small</option>
+                      <option value="medium">Whisper medium</option>
+                      <option value="large-v3-turbo">Whisper large-v3-turbo</option>
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    VAD Sensitivity ({draft.voice.vadThreshold})
+                    <input
+                      type="range"
+                      min={0.2}
+                      max={0.8}
+                      step={0.05}
+                      value={draft.voice.vadThreshold}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, vadThreshold: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    End-of-Speech Silence ({draft.voice.vadMinSilenceMs} ms)
+                    <input
+                      type="range"
+                      min={250}
+                      max={1000}
+                      step={50}
+                      value={draft.voice.vadMinSilenceMs}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, vadMinSilenceMs: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    Microphone
+                    <select
+                      className="nika-select"
+                      value={draft.voice.inputDeviceId}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, inputDeviceId: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="default">System Default</option>
+                      {audioInputs.map((d) => (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          {d.label || `Mic ${d.deviceId.slice(0, 6)}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    Wake Word
+                    <input
+                      className="nika-input"
+                      value={draft.voice.wakeWord}
+                      onChange={(e) =>
+                        applyDebounced({
+                          ...draft,
+                          voice: { ...draft.voice, wakeWord: e.target.value }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    TTS Engine
+                    <select
+                      className="nika-select"
+                      value={draft.voice.ttsEngine}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: {
+                            ...draft.voice,
+                            ttsEngine: e.target.value as AppSettings["voice"]["ttsEngine"]
+                          }
+                        })
+                      }
+                    >
+                      <option value="auto">Auto (Nika Pocket ID / Kokoro EN)</option>
+                      <option value="pocket">Pocket TTS (Nika Voice Clone)</option>
+                      <option value="piper">Piper TTS</option>
+                      <option value="kokoro">Kokoro TTS</option>
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    Speaking Speed ({draft.voice.ttsSpeed}x)
+                    <input
+                      type="range"
+                      min={0.6}
+                      max={1.5}
+                      step={0.05}
+                      value={draft.voice.ttsSpeed}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, ttsSpeed: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+
+            {activeTab === "memory" && (
+              <>
+                {mind && (
+                  <div className="nika-card">
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <div>
+                        <span style={{ fontSize: 12, color: "#94a3b8" }}>Mood Saat Ini: </span>
+                        <strong style={{ fontSize: 14, color: "#7dd3fc" }}>{mind.mood}</strong>
+                      </div>
+                      <button className="nika-btn" type="button" onClick={() => void handleResetMind()}>
+                        Reset Mood
+                      </button>
+                    </div>
+                    <div className="nika-field-grid" style={{ marginBottom: 0 }}>
+                      {[
+                        { label: "Happiness", val: mind.happiness },
+                        { label: "Affection", val: mind.affection },
+                        { label: "Energy", val: mind.energy },
+                        { label: "Trust", val: mind.trust }
+                      ].map((m) => (
+                        <div key={m.label}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                            <span style={{ color: "#cbd5e1" }}>{m.label}</span>
+                            <span style={{ color: "#94a3b8", fontVariantNumeric: "tabular-nums" }}>{m.val}%</span>
+                          </div>
+                          <div className="nika-meter-track">
+                            <div className="nika-meter-fill" style={{ width: `${m.val}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <input
+                    className="nika-input"
+                    placeholder="Tambah memori baru tentangmu..."
+                    value={newMemoryText}
+                    onChange={(e) => setNewMemoryText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleAddMemory();
+                      }
+                    }}
+                  />
+                  <button className="nika-btn active" type="button" onClick={() => void handleAddMemory()}>
+                    Tambah
+                  </button>
+                  {memories.length > 0 && (
+                    <button className="nika-btn danger" type="button" onClick={() => void handleClearMemories()}>
+                      Hapus Semua
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {memories.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: "#94a3b8", padding: "12px 0" }}>
+                      Belum ada memori tersimpan. Nika otomatis mengingat fakta penting saat ngobrol.
+                    </div>
+                  ) : (
+                    memories.map((m) => (
+                      <div
+                        key={m.id}
+                        className="nika-boot-row"
+                        style={{ padding: "8px 12px" }}
+                      >
+                        <span>
+                          <strong style={{ color: "#c084fc", marginRight: 8 }}>[{m.category}]</strong>
+                          {m.content}
+                        </span>
+                        <button
+                          className="nika-btn"
+                          type="button"
+                          style={{ padding: "2px 8px" }}
+                          onClick={() => void handleDeleteMemory(m.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeTab === "system" && (
+              <div className="nika-field-grid">
+                <label className="nika-field">
+                  Bahasa Utama
+                  <select
+                    className="nika-select"
+                    value={draft.ui.language}
+                    onChange={(e) =>
+                      applyInstant({
+                        ...draft,
+                        ui: { ...draft.ui, language: e.target.value as "id" | "en" }
+                      })
+                    }
+                  >
+                    <option value="id">Indonesia</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+                <label className="nika-field">
+                  Always on Top
+                  <select
+                    className="nika-select"
+                    value={draft.ui.alwaysOnTop ? "true" : "false"}
+                    onChange={(e) =>
+                      applyInstant({
+                        ...draft,
+                        ui: { ...draft.ui, alwaysOnTop: e.target.value === "true" }
+                      })
+                    }
+                  >
+                    <option value="false">Normal Window</option>
+                    <option value="true">Selalu di Atas (Always on Top)</option>
+                  </select>
+                </label>
+              </div>
             )}
           </div>
-        </div>
-
-        {mind && (
-          <div style={{ fontSize: 12, color: "#e2e8f0", marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 12 }}>
-            <span>Mood: <strong style={{ color: "#67e8f9" }}>{mind.mood}</strong></span>
-            <span>Happiness: {mind.happiness}%</span>
-            <span>Affection: {mind.affection}%</span>
-            <span>Energy: {mind.energy}%</span>
-            <span>Trust: {mind.trust}%</span>
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <input
-            className="nika-input"
-            style={{ flex: 1 }}
-            placeholder="Tambah memori tentangmu (mis. Aku suka kopi susu)..."
-            value={newMemoryText}
-            onChange={(e) => setNewMemoryText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void handleAddMemory();
-              }
-            }}
-          />
-          <button className="nika-btn" type="button" onClick={() => void handleAddMemory()}>
-            Tambah
-          </button>
-        </div>
-
-        <div style={{ maxHeight: 120, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-          {memories.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>
-              Belum ada memori tersimpan. Nika otomatis mengingat fakta penting saat ngobrol.
-            </div>
-          ) : (
-            memories.map((m) => (
-              <div
-                key={m.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  fontSize: 12,
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                  background: "rgba(255,255,255,0.04)"
-                }}
-              >
-                <span>
-                  <strong style={{ color: "#c084fc", marginRight: 6 }}>[{m.category}]</strong>
-                  {m.content}
-                </span>
-                <button
-                  className="nika-btn"
-                  type="button"
-                  style={{ padding: "2px 6px", fontSize: 11 }}
-                  onClick={() => void handleDeleteMemory(m.id)}
-                >
-                  ×
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-
-        {saveError && (
-          <div style={{ fontSize: 12, marginTop: 10, color: "#fca5a5" }}>
-            Failed to save: {saveError}
-          </div>
-        )}
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
-          <button className="nika-btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="nika-btn active" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving..." : "Save & Apply"}
-          </button>
-        </div>
+        </section>
       </div>
     </div>
   );

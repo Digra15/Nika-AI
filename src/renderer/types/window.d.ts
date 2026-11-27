@@ -9,6 +9,7 @@ import type {
   MemoryItem,
   MemorySnapshot,
   NikaMindState,
+  SystemReadiness,
   VoiceSidecarStatus
 } from "../../shared/types/index";
 
@@ -26,6 +27,7 @@ export interface NikaAPI {
   checkRouterHealth: () => Promise<boolean>;
   listModels: () => Promise<AIModelInfo[]>;
   checkVoiceHealth: () => Promise<VoiceSidecarStatus>;
+  checkSystemReadiness: () => Promise<SystemReadiness>;
   sendChatMessage: (payload: { text: string; requestId: string }) => Promise<ChatMessage>;
   abortChat: () => Promise<boolean>;
   clearHistory: () => Promise<boolean>;

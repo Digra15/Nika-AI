@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("nikaAPI", {
   checkRouterHealth: () => ipcRenderer.invoke("nika:router-health"),
   listModels: () => ipcRenderer.invoke("nika:list-models"),
   checkVoiceHealth: () => ipcRenderer.invoke("nika:voice-health"),
+  checkSystemReadiness: () => ipcRenderer.invoke("nika:system-readiness"),
   sendChatMessage: (payload) => ipcRenderer.invoke("nika:chat-send", payload),
   abortChat: () => ipcRenderer.invoke("nika:chat-abort"),
   clearHistory: () => ipcRenderer.invoke("nika:chat-clear"),

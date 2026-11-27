@@ -117,6 +117,28 @@ function registerIpcHandlers(): void {
     return voiceSidecar.checkHealth(voice);
   });
 
+  ipcMain.handle("nika:system-readiness", async () => {
+    const { ai, voice } = configManager.getSettings();
+    const [routerOnline, voiceHealth] = await Promise.all([
+      aiClient.checkHealth(ai).catch(() => false),
+      voiceSidecar.checkHealth(voice).catch(() => ({
+        connected: false,
+        vadReady: false,
+        sttReady: false,
+        ttsReady: false,
+        activeTtsEngines: []
+      }))
+    ]);
+    return {
+      configReady: true,
+      memoryReady: true,
+      toolsCount: toolRegistry.getDefinitions().length,
+      agentBrowserReady: agentBrowser.isReady(),
+      routerOnline,
+      voice: voiceHealth
+    };
+  });
+
   ipcMain.handle(
     "nika:chat-send",
     async (_event, payload: { text: string; requestId: string }) => {

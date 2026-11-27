@@ -169,6 +169,15 @@ export interface VoiceSidecarStatus {
   error?: string;
 }
 
+export interface SystemReadiness {
+  configReady: boolean;
+  memoryReady: boolean;
+  toolsCount: number;
+  agentBrowserReady: boolean;
+  routerOnline: boolean;
+  voice: VoiceSidecarStatus;
+}
+
 export interface PipelineState {
   avatarState: AvatarActivityState;
   emotion: EmotionType;

@@ -22,7 +22,9 @@ import type {
 } from "../shared/types/index";
 import { AudioPipeline } from "./audio/AudioPipeline";
 import { AvatarScene } from "./avatar/AvatarScene";
+import { NikaBootScreen } from "./components/NikaBootScreen";
 import { SettingsModal } from "./components/SettingsModal";
+import type { SystemReadiness } from "../shared/types/index";
 
 export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -61,6 +63,9 @@ export default function App() {
   const [micActive, setMicActive] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [booting, setBooting] = useState(() => Boolean(typeof window !== "undefined" && window.nikaAPI));
+  const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
+  const [allowBootSkip, setAllowBootSkip] = useState(false);
 
   const activeRequestIdRef = useRef<string | null>(null);
   const ttsAbortRef = useRef<AbortController | null>(null);
@@ -267,6 +272,42 @@ export default function App() {
   }, [enqueueSentenceTTS]);
 
   useEffect(() => {
+    if (!booting || !window.nikaAPI?.checkSystemReadiness) return;
+    let active = true;
+    const skipTimer = window.setTimeout(() => {
+      if (active) setAllowBootSkip(true);
+    }, 6500);
+
+    const check = async () => {
+      if (!active || !window.nikaAPI?.checkSystemReadiness) return;
+      const status = await window.nikaAPI.checkSystemReadiness().catch(() => null);
+      if (!active || !status) return;
+      setReadiness(status);
+      const allReady =
+        status.configReady &&
+        status.memoryReady &&
+        status.toolsCount > 0 &&
+        status.voice.vadReady &&
+        status.voice.sttReady &&
+        status.voice.ttsReady &&
+        status.routerOnline;
+      if (allReady) {
+        window.setTimeout(() => {
+          if (active) setBooting(false);
+        }, 350);
+        return;
+      }
+      window.setTimeout(() => void check(), 900);
+    };
+
+    void check();
+    return () => {
+      active = false;
+      clearTimeout(skipTimer);
+    };
+  }, [booting]);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
 
@@ -361,21 +402,27 @@ export default function App() {
       <header className="nika-topbar">
         <div className="nika-brand">
           <span className="nika-logo-dot" />
-          <span>NIKA // AUTONOMOUS VTUBER</span>
+          <span>NIKA</span>
+          <span className="nika-brand-sub">Autonomous AI Companion</span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className={`nika-pill ${routerOnline ? "cyan" : ""}`}>
-            9Router: {routerOnline ? "Online" : "Offline"}
+        <div className="nika-topbar-actions">
+          <span className="nika-pill">
+            <span className={`nika-status-dot ${routerOnline ? "ok" : "warn"}`} />
+            9Router {routerOnline ? "Online" : "Offline"}
           </span>
 
-          <span className={`nika-pill ${voiceStatus.sttReady && wsConnected ? "cyan" : ""}`}>
-            Voice:{" "}
+          <span className="nika-pill">
+            <span
+              className={`nika-status-dot ${
+                voiceStatus.sttReady && voiceStatus.vadReady && wsConnected ? "ok" : "pulse"
+              }`}
+            />
             {voiceStatus.sttReady && voiceStatus.vadReady
               ? wsConnected
-                ? `Local Ready (${voiceStatus.activeTtsEngines.join("/") || "TTS"})`
-                : "Sidecar Ready (WS Connecting...)"
-              : "Booting..."}
+                ? voiceStatus.activeTtsEngines.join("/") || "Voice Ready"
+                : "Connecting..."
+              : "Voice Booting..."}
           </span>
 
           <select
@@ -590,9 +637,17 @@ export default function App() {
           settings={settings}
           models={models}
           onClose={() => setShowSettings(false)}
-          onSave={handleSaveSettings}
+          onLiveUpdate={handleSaveSettings}
           onTestAndLoadModels={handleTestAndLoadModels}
           onMindChange={setMind}
+        />
+      )}
+
+      {booting && (
+        <NikaBootScreen
+          readiness={readiness}
+          allowSkip={allowBootSkip}
+          onContinue={() => setBooting(false)}
         />
       )}
     </div>
