@@ -306,7 +306,7 @@ export class MemoryManager {
     return added;
   }
 
-  updateMindFromUserMessage(userText: string): NikaMindState {
+  updateMindFromUserMessage(userText: string, voiceEmotion?: string): NikaMindState {
     this.applyTimeDecay();
     const lower = userText.toLowerCase();
     const mind = this.data.mind;
@@ -315,6 +315,17 @@ export class MemoryManager {
     const negHits = NEGATIVE_WORDS.filter((w) => lower.includes(w)).length;
     const empathyHits = EMPATHY_WORDS.filter((w) => lower.includes(w)).length;
     const isQuestion = lower.includes("?") || /\b(kenapa|mengapa|bagaimana|apa itu|why|how)\b/.test(lower);
+
+    if (voiceEmotion === "excited") {
+      mind.happiness = clamp(mind.happiness + 4);
+      mind.energy = clamp(mind.energy + 4);
+    } else if (voiceEmotion === "angry") {
+      mind.happiness = clamp(mind.happiness - 5);
+      mind.trust = clamp(mind.trust - 3);
+    } else if (voiceEmotion === "sad") {
+      mind.affection = clamp(mind.affection + 2);
+      mind.energy = clamp(mind.energy - 2);
+    }
 
     if (posHits > 0) {
       mind.happiness = clamp(mind.happiness + Math.min(12, posHits * 5));
@@ -405,8 +416,10 @@ export class MemoryManager {
     persona: PersonaConfig;
     userText: string;
     contextAnalysis?: ContextAnalysis;
+    voiceEmotion?: string;
+    speakerLabel?: string;
   }): string {
-    const { baseSystemPrompt, persona, userText, contextAnalysis } = params;
+    const { baseSystemPrompt, persona, userText, contextAnalysis, voiceEmotion, speakerLabel } = params;
     const mind = this.data.mind;
     const relevantMemories = this.selectRelevantMemories(userText, 8);
 
@@ -457,6 +470,15 @@ export class MemoryManager {
         `Intent: ${contextAnalysis.intent} | Complexity: ${contextAnalysis.complexity}`,
         `Topic Focus: ${contextAnalysis.topic}`,
         `Recommended Skills: ${contextAnalysis.suggestedSkills.join(", ")}`
+      );
+    }
+
+    if (voiceEmotion || speakerLabel) {
+      sections.push(
+        "",
+        `[VOICE & SPEAKER CONTEXT]`,
+        speakerLabel ? `Current Speaker: ${speakerLabel}` : "",
+        voiceEmotion ? `Detected User Voice Emotion: ${voiceEmotion} (respond with matching empathy/tone)` : ""
       );
     }
 

@@ -58,6 +58,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [mind, setMind] = useState<NikaMindState | null>(null);
   const [newMemoryText, setNewMemoryText] = useState("");
+  const [speakers, setSpeakers] = useState<Array<{ id: string; label: string; samples: number }>>([]);
   const debounceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -70,6 +71,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setMind(snap.mind);
       });
     }
+    void fetch(`http://${settings.voice.host}:${settings.voice.port}/speakers`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { speakers?: Array<{ id: string; label: string; samples: number }> } | null) => {
+        if (d?.speakers) setSpeakers(d.speakers);
+      })
+      .catch(() => {});
     return () => {
       if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current);
@@ -650,13 +657,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </select>
                   </label>
                   <label className="nika-field">
-                    Volume Tarik Napas ({Math.round((draft.voice.breathVolume ?? 0.18) * 100)}%)
+                    Volume Tarik Napas ({Math.round((draft.voice.breathVolume ?? 0.1) * 100)}%)
                     <input
                       type="range"
                       min={0}
                       max={0.5}
                       step={0.02}
-                      value={draft.voice.breathVolume ?? 0.18}
+                      value={draft.voice.breathVolume ?? 0.1}
                       onChange={(e) =>
                         applyInstant({
                           ...draft,
@@ -665,6 +672,80 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       }
                     />
                   </label>
+                  <label className="nika-field">
+                    Potong Ucapan (Speech Interruption)
+                    <select
+                      className="nika-select"
+                      value={(draft.voice.bargeInEnabled ?? true) ? "true" : "false"}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, bargeInEnabled: e.target.value === "true" }
+                        })
+                      }
+                    >
+                      <option value="true">Aktif (Boleh Potong Ucapan)</option>
+                      <option value="false">Nonaktif</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="nika-card">
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>
+                      Pengenalan Suara Pembicara (Speaker Recognition)
+                    </div>
+                    {speakers.length > 0 && (
+                      <button
+                        className="nika-btn danger"
+                        type="button"
+                        onClick={async () => {
+                          await fetch(`http://${draft.voice.host}:${draft.voice.port}/speakers`, {
+                            method: "DELETE"
+                          }).catch(() => {});
+                          setSpeakers([]);
+                        }}
+                      >
+                        Reset Speaker
+                      </button>
+                    )}
+                  </div>
+                  {speakers.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                      Belum ada profil suara terekam. Bicara lewat mic agar Nika otomatis mengenali dan membedakan suara orang.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {speakers.map((s) => (
+                        <div key={s.id} className="nika-boot-row">
+                          <input
+                            className="nika-input"
+                            style={{ width: 220, padding: "4px 8px" }}
+                            value={s.label}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSpeakers((prev) =>
+                                prev.map((item) => (item.id === s.id ? { ...item, label: val } : item))
+                              );
+                            }}
+                            onBlur={(e) => {
+                              void fetch(
+                                `http://${draft.voice.host}:${draft.voice.port}/speakers/rename`,
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ id: s.id, label: e.target.value })
+                                }
+                              ).catch(() => {});
+                            }}
+                          />
+                          <span style={{ fontSize: 11.5, color: "#94a3b8" }}>
+                            {s.samples} sampel suara
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}

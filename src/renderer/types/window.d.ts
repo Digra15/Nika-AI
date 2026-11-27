@@ -44,6 +44,8 @@ export interface NikaAPI {
     requestId: string;
     isVoiceInput?: boolean;
     confidence?: number;
+    voiceEmotion?: string;
+    speakerLabel?: string;
   }) => Promise<ChatMessage | null>;
   abortChat: () => Promise<boolean>;
   clearHistory: () => Promise<boolean>;

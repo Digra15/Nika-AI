@@ -37,6 +37,7 @@ export class AudioPipeline {
 
   private listeningMode: ListeningMode = "auto";
   private wakeWord = "nika";
+  private bargeInEnabled = true;
   private pttPressed = false;
   private reconnectTimer: number | null = null;
   private bargeInTimer: number | null = null;
@@ -49,6 +50,7 @@ export class AudioPipeline {
     this.disposed = false;
     this.listeningMode = config.listeningMode;
     this.wakeWord = config.wakeWord.toLowerCase().trim();
+    this.bargeInEnabled = config.bargeInEnabled ?? true;
     this.ensurePlaybackContext();
     this.connectWebSocket(config);
     await this.startMicrophone(config.inputDeviceId);
@@ -57,6 +59,7 @@ export class AudioPipeline {
   updateConfig(config: VoiceConfig): void {
     this.listeningMode = config.listeningMode;
     this.wakeWord = config.wakeWord.toLowerCase().trim();
+    this.bargeInEnabled = config.bargeInEnabled ?? true;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
@@ -156,28 +159,35 @@ export class AudioPipeline {
           text?: string;
           language?: string;
           confidence?: number;
+          voiceEmotion?: TranscriptEvent["voiceEmotion"];
+          speaker?: TranscriptEvent["speaker"];
         };
 
         if (msg.type === "vad") {
           const active = Boolean(msg.active);
           this.callbacks.onVadChange(active);
-          if (active && this.isPlaying && this.listeningMode !== "muted") {
-            // Require 450ms sustained voice before interrupting TTS (prevents speaker echo/clicks)
+          if (active && this.isPlaying && this.bargeInEnabled && this.listeningMode !== "muted") {
+            // Require 380ms sustained voice before interrupting TTS (prevents speaker echo/clicks)
             if (this.bargeInTimer === null) {
               this.bargeInTimer = window.setTimeout(() => {
                 this.bargeInTimer = null;
-                if (this.isPlaying && this.listeningMode !== "muted") {
+                if (this.isPlaying && this.bargeInEnabled && this.listeningMode !== "muted") {
                   this.stopPlayback();
                   this.callbacks.onInterrupt();
                 }
-              }, 450);
+              }, 380);
             }
           } else if (!active && this.bargeInTimer !== null) {
             clearTimeout(this.bargeInTimer);
             this.bargeInTimer = null;
           }
         } else if (msg.type === "partial_transcript" && msg.text) {
-          if (this.isPlaying && this.listeningMode !== "muted" && msg.text.trim().length >= 3) {
+          if (
+            this.isPlaying &&
+            this.bargeInEnabled &&
+            this.listeningMode !== "muted" &&
+            msg.text.trim().length >= 3
+          ) {
             if (this.bargeInTimer !== null) {
               clearTimeout(this.bargeInTimer);
               this.bargeInTimer = null;
@@ -207,7 +217,9 @@ export class AudioPipeline {
             language: msg.language || "id",
             confidence: msg.confidence ?? 0.9,
             isPartial: false,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            voiceEmotion: msg.voiceEmotion,
+            speaker: msg.speaker
           });
         }
       } catch {

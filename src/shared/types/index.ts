@@ -84,6 +84,7 @@ export interface VoiceConfig {
   sentencePauseMs: number;
   breathAudioEnabled: boolean;
   breathVolume: number;
+  bargeInEnabled: boolean;
   vadThreshold: number;
   vadMinSilenceMs: number;
   listeningMode: ListeningMode;
@@ -155,12 +156,27 @@ export interface AppSettings {
   };
 }
 
+export interface VoiceEmotionInfo {
+  emotion: "neutral" | "calm" | "excited" | "angry" | "sad";
+  energy: number;
+  pitchHz: number;
+}
+
+export interface SpeakerIdentity {
+  id: string;
+  label: string;
+  confidence: number;
+  isNew: boolean;
+}
+
 export interface TranscriptEvent {
   text: string;
   language: string;
   isPartial: boolean;
   confidence: number;
   timestamp: number;
+  voiceEmotion?: VoiceEmotionInfo;
+  speaker?: SpeakerIdentity;
 }
 
 export interface VoiceSidecarStatus {

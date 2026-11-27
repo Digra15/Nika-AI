@@ -47,6 +47,8 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [lastSpeaker, setLastSpeaker] = useState<string | null>(null);
+  const [lastVoiceEmotion, setLastVoiceEmotion] = useState<string | null>(null);
   const [activePlan, setActivePlan] = useState<{
     goal: string;
     doneCount: number;
@@ -118,7 +120,12 @@ export default function App() {
   const sendPromptToNika = useCallback(
     async (
       text: string,
-      opts?: { isVoiceInput?: boolean; confidence?: number }
+      opts?: {
+        isVoiceInput?: boolean;
+        confidence?: number;
+        voiceEmotion?: string;
+        speakerLabel?: string;
+      }
     ) => {
       const clean = text.trim();
       if (!clean) return;
@@ -140,7 +147,9 @@ export default function App() {
           text: clean,
           requestId,
           isVoiceInput: opts?.isVoiceInput,
-          confidence: opts?.confidence
+          confidence: opts?.confidence,
+          voiceEmotion: opts?.voiceEmotion,
+          speakerLabel: opts?.speakerLabel
         });
       } catch (err) {
       console.error("Chat error:", err);
@@ -169,9 +178,13 @@ export default function App() {
       onPartialTranscript: (ev) => setPartialTranscript(ev.text),
       onFinalTranscript: (ev) => {
         setPartialTranscript("");
+        if (ev.speaker?.label) setLastSpeaker(ev.speaker.label);
+        if (ev.voiceEmotion?.emotion) setLastVoiceEmotion(ev.voiceEmotion.emotion);
         void sendPromptToNika(ev.text, {
           isVoiceInput: true,
-          confidence: ev.confidence
+          confidence: ev.confidence,
+          voiceEmotion: ev.voiceEmotion?.emotion,
+          speakerLabel: ev.speaker?.label
         });
       },
       onInterrupt: () => {
@@ -502,6 +515,14 @@ export default function App() {
             <span className="nika-pill" title={`Happiness ${mind.happiness} | Energy ${mind.energy} | Trust ${mind.trust}`}>
               Mood: {mind.mood} · ❤️ {mind.affection}%
             </span>
+            {lastSpeaker && (
+              <span className="nika-pill">
+                {lastSpeaker}
+                {lastVoiceEmotion && lastVoiceEmotion !== "neutral"
+                  ? ` · ${lastVoiceEmotion}`
+                  : ""}
+              </span>
+            )}
             {activePlan && (
               <span className="nika-pill" title={activePlan.goal}>
                 Plan: {activePlan.doneCount}/{activePlan.totalCount}

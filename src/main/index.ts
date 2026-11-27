@@ -173,6 +173,8 @@ function registerIpcHandlers(): void {
         requestId: string;
         isVoiceInput?: boolean;
         confidence?: number;
+        voiceEmotion?: string;
+        speakerLabel?: string;
       }
     ) => {
       const settings = configManager.getSettings();
@@ -199,7 +201,10 @@ function registerIpcHandlers(): void {
       }
 
       memoryManager.extractAndStoreFromUserMessage(finalUserText);
-      const mindAfterUser = memoryManager.updateMindFromUserMessage(finalUserText);
+      const mindAfterUser = memoryManager.updateMindFromUserMessage(
+        finalUserText,
+        payload.voiceEmotion
+      );
       mainWindow?.webContents.send("nika:chat-stream", {
         requestId: payload.requestId,
         type: "mind",
@@ -218,7 +223,9 @@ function registerIpcHandlers(): void {
         baseSystemPrompt: settings.ai.systemPrompt,
         persona: settings.persona,
         userText: finalUserText,
-        contextAnalysis
+        contextAnalysis,
+        voiceEmotion: payload.voiceEmotion,
+        speakerLabel: payload.speakerLabel
       });
 
       try {

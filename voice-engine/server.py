@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from stt_engine import FasterWhisperSTTEngine, SherpaStreamingSTTEngine
 from tts_engine import TTSManager
 from vad_engine import SileroVADEngine
+from voice_analyzer import VoiceAnalyzer
 
 vad_engine = SileroVADEngine(
     threshold=float(os.getenv("NIKA_VAD_THRESHOLD", "0.5")),
@@ -38,6 +39,7 @@ whisper_fallback = FasterWhisperSTTEngine(
 )
 stt_engine = sherpa_stt if sherpa_stt.is_available_on_disk() else whisper_fallback
 tts_manager = TTSManager()
+voice_analyzer = VoiceAnalyzer()
 
 
 async def _load_models():
@@ -171,6 +173,30 @@ async def synthesize_stream(req: SynthesizeRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+class RenameSpeakerRequest(BaseModel):
+    id: str
+    label: str
+
+
+@app.get("/speakers")
+async def get_speakers():
+    return {"speakers": voice_analyzer.list_speakers()}
+
+
+@app.post("/speakers/rename")
+async def rename_speaker(req: RenameSpeakerRequest):
+    ok = voice_analyzer.rename_speaker(req.id, req.label)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Speaker not found or invalid label")
+    return {"ok": True, "speakers": voice_analyzer.list_speakers()}
+
+
+@app.delete("/speakers")
+async def clear_speakers():
+    voice_analyzer.clear_speakers()
+    return {"ok": True, "speakers": []}
+
+
 @app.websocket("/ws/audio")
 async def audio_stream(websocket: WebSocket):
     await websocket.accept()
@@ -289,7 +315,20 @@ async def audio_stream(websocket: WebSocket):
                                 final_text = wres.text
                                 print(f"[voice-sidecar] Whisper fallback final: {final_text!r}", flush=True)
                         if final_text:
-                            print(f"[voice-sidecar] Sherpa final: {final_text!r}", flush=True)
+                            voice_emotion = (
+                                voice_analyzer.analyze_emotion(ended_segment)
+                                if ended_segment is not None
+                                else {"emotion": "neutral", "energy": 0.0, "pitchHz": 0.0}
+                            )
+                            speaker_info = (
+                                voice_analyzer.identify_speaker(ended_segment)
+                                if ended_segment is not None
+                                else {"id": "spk-1", "label": "Speaker 1", "confidence": 0.5, "isNew": False}
+                            )
+                            print(
+                                f"[voice-sidecar] Sherpa final ({speaker_info['label']}, {voice_emotion['emotion']}): {final_text!r}",
+                                flush=True,
+                            )
                             await websocket.send_json(
                                 {
                                     "type": "final_transcript",
@@ -297,6 +336,8 @@ async def audio_stream(websocket: WebSocket):
                                     "language": stt_engine.language if stt_engine.language != "auto" else "id",
                                     "confidence": 0.95,
                                     "isPartial": False,
+                                    "voiceEmotion": voice_emotion,
+                                    "speaker": speaker_info,
                                 }
                             )
                             stt_engine.reset_stream(sherpa_stream)
