@@ -3,18 +3,20 @@ import type { AvatarActivityState, EmotionType, MoodType } from "../../shared/ty
 import type { AudioPipeline } from "../audio/AudioPipeline";
 import { SpriteController, type AvatarGestureType } from "./AvatarController";
 import armsImg from "../assets/avatar/arms.jpg";
-import angryImg from "../assets/avatar/angry.jpg";
 import backHairImg from "../assets/avatar/back_hair.jpg";
 import bangsFrontImg from "../assets/avatar/bangs_front.jpg";
-import happyImg from "../assets/avatar/happy.jpg";
 import headBlankImg from "../assets/avatar/head_blank.jpg";
-import headImg from "../assets/avatar/head.jpg";
-import laughImg from "../assets/avatar/laugh.jpg";
-import sadImg from "../assets/avatar/sad.jpg";
-import surprisedImg from "../assets/avatar/surprised.jpg";
-import talkingImg from "../assets/avatar/talking.jpg";
-import thinkingImg from "../assets/avatar/thinking.jpg";
-import torsoImg from "../assets/avatar/torso.jpg";
+import psdBrowsNeutralImg from "../assets/avatar/psd_brows_neutral.jpg";
+import psdEyesAngryImg from "../assets/avatar/psd_eyes_angry.jpg";
+import psdEyesHappyImg from "../assets/avatar/psd_eyes_happy.jpg";
+import psdEyesOpenImg from "../assets/avatar/psd_eyes_open.jpg";
+import psdEyesSadImg from "../assets/avatar/psd_eyes_sad.jpg";
+import psdMouthNeutralImg from "../assets/avatar/psd_mouth_neutral.jpg";
+import psdMouthOpenImg from "../assets/avatar/psd_mouth_open.jpg";
+import psdNeckImg from "../assets/avatar/psd_neck.jpg";
+import psdNoseBlushImg from "../assets/avatar/psd_nose_blush.jpg";
+import psdPupilsImg from "../assets/avatar/psd_pupils.jpg";
+import psdTorsoNoNeckImg from "../assets/avatar/psd_torso_no_neck.jpg";
 
 interface Nika2DAvatarProps {
   avatarState: AvatarActivityState;
@@ -194,226 +196,6 @@ function cropPart(
   return c;
 }
 
-/**
- * Builds 3 clean open-mouth stages (small, medium, wide) on top of a skin-matched
- * base so the closed neutral smile line underneath never creates a ghost shadow.
- */
-function buildMouthStages(
-  headCutout: HTMLCanvasElement,
-  talkingCutout: HTMLCanvasElement
-): HTMLCanvasElement[] {
-  const w = headCutout.width;
-  const h = headCutout.height;
-  const mw = Math.round(w * 0.11);
-  const mh = Math.round(h * 0.065);
-  const mx = Math.round(w * 0.5 - mw * 0.5);
-  const my = Math.round(h * 0.325 - mh * 0.5);
-
-  // Sample skin color right above and below the mouth from headCutout
-  const hCtx = headCutout.getContext("2d");
-  let skinR = 252;
-  let skinG = 234;
-  let skinB = 228;
-  if (hCtx) {
-    const sample = hCtx.getImageData(Math.round(w * 0.5), Math.round(h * 0.308), 1, 1).data;
-    if (sample[3] > 200) {
-      skinR = sample[0];
-      skinG = sample[1];
-      skinB = sample[2];
-    }
-  }
-  const skinColor = `rgb(${skinR}, ${skinG}, ${skinB})`;
-
-  // Extract clean talking mouth patch
-  const rawMouth = document.createElement("canvas");
-  rawMouth.width = mw;
-  rawMouth.height = mh;
-  const rmCtx = rawMouth.getContext("2d");
-  if (rmCtx) {
-    rmCtx.drawImage(talkingCutout, mx, my, mw, mh, 0, 0, mw, mh);
-    rmCtx.globalCompositeOperation = "destination-in";
-    const mGrad = rmCtx.createRadialGradient(mw * 0.5, mh * 0.5, mw * 0.16, mw * 0.5, mh * 0.5, mw * 0.45);
-    mGrad.addColorStop(0, "rgba(0,0,0,1)");
-    mGrad.addColorStop(0.7, "rgba(0,0,0,0.95)");
-    mGrad.addColorStop(1, "rgba(0,0,0,0)");
-    rmCtx.fillStyle = mGrad;
-    rmCtx.fillRect(0, 0, mw, mh);
-    rmCtx.globalCompositeOperation = "source-over";
-  }
-
-  const scalesY = [0.42, 0.72, 1.0];
-  const scalesX = [0.88, 0.96, 1.0];
-
-  return scalesY.map((sy, idx) => {
-    const stage = document.createElement("canvas");
-    stage.width = mw;
-    stage.height = mh;
-    const ctx = stage.getContext("2d");
-    if (!ctx) return stage;
-
-    // 1. Solid feathered skin cover to completely hide the closed smile line underneath
-    const coverGrad = ctx.createRadialGradient(
-      mw * 0.5,
-      mh * 0.5,
-      mw * 0.2,
-      mw * 0.5,
-      mh * 0.5,
-      mw * 0.46
-    );
-    coverGrad.addColorStop(0, skinColor);
-    coverGrad.addColorStop(0.72, skinColor);
-    coverGrad.addColorStop(1, `rgba(${skinR}, ${skinG}, ${skinB}, 0)`);
-    ctx.fillStyle = coverGrad;
-    ctx.fillRect(0, 0, mw, mh);
-
-    // 2. Draw scaled open mouth cleanly at full opacity
-    ctx.save();
-    ctx.translate(mw * 0.5, mh * 0.5);
-    ctx.scale(scalesX[idx], sy);
-    ctx.drawImage(rawMouth, -mw * 0.5, -mh * 0.5);
-    ctx.restore();
-
-    return stage;
-  });
-}
-
-interface FacePartSet {
-  eyebrows: HTMLCanvasElement;
-  eyesBase: HTMLCanvasElement;
-  iris: HTMLCanvasElement | null;
-  nose: HTMLCanvasElement;
-  blush: HTMLCanvasElement;
-  mouth: HTMLCanvasElement;
-}
-
-/**
- * Separates an expression canvas into independent PSD layers (eyebrows, eyesBase,
- * trackable iris, nose, cheek blush, and mouth) by comparing against headBlank.
- */
-function extractFaceParts(
-  headBlank: HTMLCanvasElement,
-  exprCanvas: HTMLCanvasElement,
-  hasOpenEyes: boolean
-): FacePartSet {
-  const w = headBlank.width;
-  const h = headBlank.height;
-
-  const makeLayer = () => {
-    const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
-    return c;
-  };
-
-  const eyebrows = makeLayer();
-  const eyesBase = makeLayer();
-  const iris = hasOpenEyes ? makeLayer() : null;
-  const nose = makeLayer();
-  const blush = makeLayer();
-  const mouth = makeLayer();
-
-  const bCtx = headBlank.getContext("2d");
-  const eCtx = exprCanvas.getContext("2d");
-  if (!bCtx || !eCtx) {
-    return { eyebrows, eyesBase, iris, nose, blush, mouth };
-  }
-
-  const bData = bCtx.getImageData(0, 0, w, h).data;
-  const eData = eCtx.getImageData(0, 0, w, h).data;
-
-  const browImg = eyebrows.getContext("2d")!.createImageData(w, h);
-  const eyeImg = eyesBase.getContext("2d")!.createImageData(w, h);
-  const irisImg = iris ? iris.getContext("2d")!.createImageData(w, h) : null;
-  const noseImg = nose.getContext("2d")!.createImageData(w, h);
-  const blushImg = blush.getContext("2d")!.createImageData(w, h);
-  const mouthImg = mouth.getContext("2d")!.createImageData(w, h);
-
-  const yMin = Math.floor(h * 0.17);
-  const yMax = Math.ceil(h * 0.37);
-  const xMin = Math.floor(w * 0.33);
-  const xMax = Math.ceil(w * 0.67);
-
-  for (let y = yMin; y < yMax; y++) {
-    const ny = y / h;
-    for (let x = xMin; x < xMax; x++) {
-      const idx = (y * w + x) * 4;
-      const ea = eData[idx + 3];
-      if (ea < 16) continue;
-
-      const dr = Math.abs(eData[idx] - bData[idx]);
-      const dg = Math.abs(eData[idx + 1] - bData[idx + 1]);
-      const db = Math.abs(eData[idx + 2] - bData[idx + 2]);
-      const diff = dr + dg + db;
-      // Ignore subtle JPG compression differences on skin to avoid rectangular patch edges
-      if (diff <= 30) continue;
-
-      const nx = x / w;
-      const alpha = Math.min(255, Math.round(ea * Math.min(1, (diff - 26) / 36)));
-
-      let target: ImageData | null = null;
-      let r = eData[idx];
-      let g = eData[idx + 1];
-      let b = eData[idx + 2];
-      let outAlpha = alpha;
-
-      if (ny < 0.234) {
-        target = browImg;
-      } else if (ny < 0.283) {
-        const inLeftIrisBox = nx >= 0.382 && nx <= 0.434 && ny >= 0.244 && ny <= 0.278;
-        const inRightIrisBox = nx >= 0.566 && nx <= 0.618 && ny >= 0.244 && ny <= 0.278;
-        const maxC = Math.max(r, g, b);
-        const minC = Math.min(r, g, b);
-        const isBrightSclera = minC > 215 && maxC - minC < 26;
-        const isTopLash = ny < 0.248 && maxC < 95;
-
-        if (irisImg && (inLeftIrisBox || inRightIrisBox) && !isBrightSclera && !isTopLash) {
-          irisImg.data[idx] = r;
-          irisImg.data[idx + 1] = g;
-          irisImg.data[idx + 2] = b;
-          irisImg.data[idx + 3] = alpha;
-
-          target = eyeImg;
-          r = 250;
-          g = 247;
-          b = 253;
-        } else {
-          target = eyeImg;
-        }
-      } else if (ny < 0.305 && nx >= 0.474 && nx <= 0.526) {
-        target = noseImg;
-      } else if (ny >= 0.278 && ny < 0.316 && (nx < 0.47 || nx > 0.53)) {
-        // Feathered elliptical cheek blush falloff so there is zero rectangular cut edge
-        const cheekCx = nx < 0.5 ? 0.405 : 0.595;
-        const cheekCy = 0.296;
-        const dx = (nx - cheekCx) / 0.055;
-        const dy = (ny - cheekCy) / 0.018;
-        const radial = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy));
-        if (radial <= 0) continue;
-        outAlpha = Math.round(alpha * Math.min(1, radial * 1.6));
-        target = blushImg;
-      } else if (ny >= 0.305 && nx >= 0.42 && nx <= 0.58) {
-        target = mouthImg;
-      }
-
-      if (target) {
-        target.data[idx] = r;
-        target.data[idx + 1] = g;
-        target.data[idx + 2] = b;
-        target.data[idx + 3] = outAlpha;
-      }
-    }
-  }
-
-  eyebrows.getContext("2d")!.putImageData(browImg, 0, 0);
-  eyesBase.getContext("2d")!.putImageData(eyeImg, 0, 0);
-  if (iris && irisImg) iris.getContext("2d")!.putImageData(irisImg, 0, 0);
-  nose.getContext("2d")!.putImageData(noseImg, 0, 0);
-  blush.getContext("2d")!.putImageData(blushImg, 0, 0);
-  mouth.getContext("2d")!.putImageData(mouthImg, 0, 0);
-
-  return { eyebrows, eyesBase, iris, nose, blush, mouth };
-}
-
 export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
   avatarState,
   emotion,
@@ -439,65 +221,63 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
     w: number;
     h: number;
     torso: HTMLCanvasElement | null;
+    neck: HTMLCanvasElement | null;
     backHair: HTMLCanvasElement | null;
     headBlank: HTMLCanvasElement | null;
     bangsFront: HTMLCanvasElement | null;
-    head: HTMLCanvasElement | null;
     leftArm: HTMLCanvasElement | null;
     rightArm: HTMLCanvasElement | null;
+    noseBlush: HTMLCanvasElement | null;
+    browsNeutral: HTMLCanvasElement | null;
+    eyesOpen: HTMLCanvasElement | null;
+    eyesHappy: HTMLCanvasElement | null;
+    eyesSad: HTMLCanvasElement | null;
+    eyesAngry: HTMLCanvasElement | null;
+    pupils: HTMLCanvasElement | null;
+    mouthNeutral: HTMLCanvasElement | null;
+    mouthOpen: HTMLCanvasElement | null;
     mouthStages: HTMLCanvasElement[];
-    happy: HTMLCanvasElement | null;
-    laugh: HTMLCanvasElement | null;
-    surprised: HTMLCanvasElement | null;
-    thinking: HTMLCanvasElement | null;
-    sad: HTMLCanvasElement | null;
-    angry: HTMLCanvasElement | null;
-    parts: Record<EmotionType, FacePartSet | null>;
   }>({
     ready: false,
     w: 896,
     h: 1200,
     torso: null,
+    neck: null,
     backHair: null,
     headBlank: null,
     bangsFront: null,
-    head: null,
     leftArm: null,
     rightArm: null,
-    mouthStages: [],
-    happy: null,
-    laugh: null,
-    surprised: null,
-    thinking: null,
-    sad: null,
-    angry: null,
-    parts: {
-      neutral: null,
-      happy: null,
-      laugh: null,
-      surprised: null,
-      thinking: null,
-      sad: null,
-      angry: null
-    }
+    noseBlush: null,
+    browsNeutral: null,
+    eyesOpen: null,
+    eyesHappy: null,
+    eyesSad: null,
+    eyesAngry: null,
+    pupils: null,
+    mouthNeutral: null,
+    mouthOpen: null,
+    mouthStages: []
   });
 
   useEffect(() => {
     let cancelled = false;
     const sources = [
-      torsoImg,
+      psdTorsoNoNeckImg,
+      psdNeckImg,
       backHairImg,
       headBlankImg,
       bangsFrontImg,
-      headImg,
       armsImg,
-      talkingImg,
-      happyImg,
-      laughImg,
-      surprisedImg,
-      thinkingImg,
-      sadImg,
-      angryImg
+      psdNoseBlushImg,
+      psdBrowsNeutralImg,
+      psdEyesOpenImg,
+      psdEyesHappyImg,
+      psdEyesSadImg,
+      psdEyesAngryImg,
+      psdPupilsImg,
+      psdMouthNeutralImg,
+      psdMouthOpenImg
     ];
     const imgs = sources.map((src) => {
       const im = new Image();
@@ -517,21 +297,24 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       if (cancelled) return;
       const [
         imTorso,
+        imNeck,
         imBackHair,
         imHeadBlank,
         imBangsFront,
-        imHead,
         imArms,
-        imTalking,
-        imHappy,
-        imLaugh,
-        imSurprised,
-        imThinking,
-        imSad,
-        imAngry
+        imNoseBlush,
+        imBrowsNeutral,
+        imEyesOpen,
+        imEyesHappy,
+        imEyesSad,
+        imEyesAngry,
+        imPupils,
+        imMouthNeutral,
+        imMouthOpen
       ] = imgs;
 
-      const torso = createCutoutCanvas(imTorso, 26);
+      const torso = createCutoutCanvas(imTorso, 34);
+      const neck = createCutoutCanvas(imNeck, 36);
       const backHair = createCutoutCanvas(imBackHair, 42);
       // Fade out upper crown of backHair so only lower neck-level hair peeks behind chin/neck
       const bhCtx = backHair.getContext("2d");
@@ -548,51 +331,63 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       }
       const headBlank = createCutoutCanvas(imHeadBlank, 46, true);
       const bangsFront = createCutoutCanvas(imBangsFront, 52, true);
-      const head = createCutoutCanvas(imHead, 46, true);
       const armsCutout = createCutoutCanvas(imArms, 36);
-      const talking = createCutoutCanvas(imTalking, 42);
-      const mouthStages = buildMouthStages(head, talking);
-      const happy = createCutoutCanvas(imHappy, 42);
-      const laugh = createCutoutCanvas(imLaugh, 42, true);
-      const surprised = createCutoutCanvas(imSurprised, 42, true);
-      const thinking = createCutoutCanvas(imThinking, 42, true);
-      const sad = createCutoutCanvas(imSad, 42, true);
-      const angry = createCutoutCanvas(imAngry, 42, true);
+      const noseBlush = createCutoutCanvas(imNoseBlush, 32);
+      const browsNeutral = createCutoutCanvas(imBrowsNeutral, 34);
+      const eyesOpen = createCutoutCanvas(imEyesOpen, 38);
+      const eyesHappy = createCutoutCanvas(imEyesHappy, 38);
+      const eyesSad = createCutoutCanvas(imEyesSad, 38);
+      const eyesAngry = createCutoutCanvas(imEyesAngry, 38);
+      const pupils = createCutoutCanvas(imPupils, 34);
+      const mouthNeutral = createCutoutCanvas(imMouthNeutral, 34);
+      const mouthOpen = createCutoutCanvas(imMouthOpen, 34);
+
+      const mw = Math.round(torso.width * 0.11);
+      const mh = Math.round(torso.height * 0.065);
+      const mx = Math.round(torso.width * 0.5 - mw * 0.5);
+      const my = Math.round(torso.height * 0.325 - mh * 0.5);
+      const mouthStages = [0.42, 0.72, 1.0].map((sy, idx) => {
+        const sx = [0.88, 0.96, 1.0][idx];
+        const stage = document.createElement("canvas");
+        stage.width = mw;
+        stage.height = mh;
+        const sCtx = stage.getContext("2d");
+        if (sCtx) {
+          sCtx.save();
+          sCtx.translate(mw * 0.5, mh * 0.5);
+          sCtx.scale(sx, sy);
+          sCtx.drawImage(mouthOpen, mx, my, mw, mh, -mw * 0.5, -mh * 0.5, mw, mh);
+          sCtx.restore();
+        }
+        return stage;
+      });
 
       const aw = armsCutout.width;
       const ah = armsCutout.height;
       const leftArm = cropPart(armsCutout, 0, 0, Math.floor(aw * 0.5), ah);
       const rightArm = cropPart(armsCutout, Math.floor(aw * 0.5), 0, Math.ceil(aw * 0.5), ah);
 
-      const parts: Record<EmotionType, FacePartSet | null> = {
-        neutral: extractFaceParts(headBlank, head, true),
-        happy: extractFaceParts(headBlank, happy, false),
-        laugh: extractFaceParts(headBlank, laugh, false),
-        surprised: extractFaceParts(headBlank, surprised, true),
-        thinking: extractFaceParts(headBlank, thinking, true),
-        sad: extractFaceParts(headBlank, sad, true),
-        angry: extractFaceParts(headBlank, angry, true)
-      };
-
       rigRef.current = {
         ready: true,
         w: torso.width,
         h: torso.height,
         torso,
+        neck,
         backHair,
         headBlank,
         bangsFront,
-        head,
         leftArm,
         rightArm,
-        mouthStages,
-        happy,
-        laugh,
-        surprised,
-        thinking,
-        sad,
-        angry,
-        parts
+        noseBlush,
+        browsNeutral,
+        eyesOpen,
+        eyesHappy,
+        eyesSad,
+        eyesAngry,
+        pupils,
+        mouthNeutral,
+        mouthOpen,
+        mouthStages
       };
     });
 
@@ -816,11 +611,9 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
         !rig.backHair ||
         !rig.headBlank ||
         !rig.bangsFront ||
-        !rig.head ||
         !rig.leftArm ||
         !rig.rightArm ||
-        rig.mouthStages.length === 0 ||
-        !rig.happy
+        rig.mouthStages.length === 0
       ) {
         rafId = requestAnimationFrame(renderFrame);
         return;
@@ -931,11 +724,21 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       ctx.drawImage(rig.rightArm, -rig.rightArm.width * 0.56, -rig.rightArm.height * 0.16);
       ctx.restore();
 
-      // 2b. Torso + Neck on top of shoulder joints
+      // 2b. Standalone Neck Layer (tucked behind torso collar, follows subtle head tilt)
+      if (rig.neck) {
+        ctx.save();
+        ctx.translate(neckPivotX + anim.headX * 0.25, neckPivotY + anim.headY * 0.2);
+        ctx.rotate(anim.headRot * 0.25);
+        ctx.translate(-neckPivotX, -neckPivotY);
+        ctx.drawImage(rig.neck, 0, 0);
+        ctx.restore();
+      }
+
+      // 2c. Torso Outfit (without neck) on top of shoulder joints & neck base
       ctx.drawImage(rig.torso, 0, 0);
       ctx.restore();
 
-      // 3. Head PSD Stack: Blank Face Base -> Facial Expression -> Blink -> Mouth -> Front Bangs on TOP
+      // 3. Head PSD Stack: Blank Face -> Nose/Blush -> Eyes -> Trackable Pupils -> Brows -> Blink -> Mouth -> Front Bangs
       ctx.save();
       ctx.translate(neckPivotX + anim.headX, neckPivotY + anim.headY);
       ctx.rotate(anim.headRot);
@@ -944,56 +747,55 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       // 3a. Blank face base (skin + headphones + outer hair)
       ctx.drawImage(rig.headBlank, 0, 0);
 
-      // 3b. Separated PSD Face Layers: Blush -> Nose -> Eyes Base -> Trackable Iris -> Eyebrows -> Mouth
-      const activeParts = rig.parts[emo] ?? rig.parts.neutral;
-      if (activeParts) {
-        // Cheek Blush (dynamic opacity from emotion & mood)
+      // 3b. Nose & Dynamic Cheek Blush
+      if (rig.noseBlush) {
         ctx.save();
-        ctx.globalAlpha = Math.max(0.35, Math.min(1, anim.blushMix + 0.35));
-        ctx.drawImage(activeParts.blush, 0, 0);
+        ctx.globalAlpha = Math.max(0.55, Math.min(1, 0.55 + anim.blushMix * 0.45));
+        ctx.drawImage(rig.noseBlush, anim.headX * 0.1, 0);
         ctx.restore();
+      }
 
-        // Nose (subtle 3D parallax)
-        ctx.drawImage(activeParts.nose, anim.headX * 0.12, 0);
+      // 3c. Expression Eyes + Trackable Pupils + Eyebrows
+      const isClosedHappy = emo === "laugh" || (emo === "happy" && anim.happyMix > 0.35);
+      if (isClosedHappy && rig.eyesHappy) {
+        ctx.drawImage(rig.eyesHappy, 0, 0);
+      } else {
+        const activeEyes =
+          emo === "sad" && rig.eyesSad
+            ? rig.eyesSad
+            : emo === "angry" && rig.eyesAngry
+              ? rig.eyesAngry
+              : rig.eyesOpen;
 
-        // Eyes Base (sclera + eyelashes)
-        ctx.drawImage(activeParts.eyesBase, 0, 0);
+        if (activeEyes) {
+          ctx.drawImage(activeEyes, 0, 0);
+        }
 
-        // Trackable Irises / Pupils clipped inside eye openings
-        if (activeParts.iris) {
+        // Trackable standalone purple pupils clipped inside eye sockets
+        if (rig.pupils) {
           const eyeY = rig.h * 0.258;
-          const eyeRx = rig.w * 0.04;
-          const eyeRy = rig.h * 0.025;
+          const eyeRx = rig.w * 0.036;
+          const eyeRy = rig.h * 0.021;
+          const lx = Math.max(-4, Math.min(4, anim.eyeLookX * 0.75));
+          const ly = Math.max(-3, Math.min(3, anim.eyeLookY * 0.75));
           for (const cx of [rig.w * 0.408, rig.w * 0.592]) {
             ctx.save();
             ctx.beginPath();
             ctx.ellipse(cx, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
             ctx.clip();
-            ctx.drawImage(activeParts.iris, anim.eyeLookX, anim.eyeLookY);
+            ctx.drawImage(rig.pupils, lx, ly);
             ctx.restore();
           }
         }
 
-        // Eyebrows (animated height per emotion)
-        ctx.drawImage(activeParts.eyebrows, 0, anim.browY);
-
-        // Expression Mouth (when not actively lip-syncing)
-        if (anim.talkMix < 0.18) {
-          ctx.drawImage(activeParts.mouth, 0, 0);
+        // Neutral/Thinking/Surprised standalone eyebrows
+        if (emo !== "sad" && emo !== "angry" && rig.browsNeutral) {
+          ctx.drawImage(rig.browsNeutral, 0, anim.browY);
         }
       }
 
-      // 3c. Happy Face Blend (when idle + happy)
-      if (anim.happyMix > 0.03 && rig.parts.happy) {
-        ctx.save();
-        ctx.globalAlpha = anim.happyMix;
-        ctx.drawImage(rig.parts.happy.eyesBase, 0, 0);
-        ctx.drawImage(rig.parts.happy.eyebrows, 0, anim.browY);
-        ctx.restore();
-      }
-
       // 3d. Natural Blink (using headBlank skin + clean curved lash UNDERNEATH bangsFront!)
-      if (anim.blink > 0.05 && emo !== "laugh") {
+      if (anim.blink > 0.05 && !isClosedHappy) {
         const eyeY = rig.h * 0.258;
         const leftEyeX = rig.w * 0.408;
         const rightEyeX = rig.w * 0.592;
@@ -1021,13 +823,17 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
         }
       }
 
-      // 3e. 4-Stage Clean Lip-Sync Mouth (zero ghosting!)
+      // 3e. Standalone Mouth (Lip-Sync 3 stages when talking, or neutral/open expression mouth)
       const mouthStageIdx = ctrl.lipSync.getMouthStageIndex(anim.talkMix);
       if (mouthStageIdx !== null && rig.mouthStages.length === 3) {
         const stageCanvas = rig.mouthStages[mouthStageIdx];
         const mx = Math.round(rig.w * 0.5 - stageCanvas.width * 0.5);
         const my = Math.round(rig.h * 0.325 - stageCanvas.height * 0.5);
         ctx.drawImage(stageCanvas, mx, my);
+      } else if ((emo === "laugh" || emo === "surprised") && rig.mouthOpen) {
+        ctx.drawImage(rig.mouthOpen, 0, 0);
+      } else if (rig.mouthNeutral) {
+        ctx.drawImage(rig.mouthNeutral, 0, 0);
       }
 
       // 3f. Front Bangs + 'N' Hairclip ON TOP of eyes & eyebrows (with gentle wind sway)
