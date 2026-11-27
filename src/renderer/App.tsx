@@ -115,25 +115,34 @@ export default function App() {
       });
   }, []);
 
-  const sendPromptToNika = useCallback(async (text: string) => {
-    const clean = text.trim();
-    if (!clean) return;
+  const sendPromptToNika = useCallback(
+    async (
+      text: string,
+      opts?: { isVoiceInput?: boolean; confidence?: number }
+    ) => {
+      const clean = text.trim();
+      if (!clean) return;
 
-    const requestId = `req-${Date.now()}`;
-    activeRequestIdRef.current = requestId;
-    ttsAbortRef.current?.abort();
-    ttsAbortRef.current = new AbortController();
-    setIsGenerating(true);
-    setEmotion("neutral");
-    setStreamingText("");
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, role: "user", content: clean, timestamp: Date.now() }
-    ]);
+      const requestId = `req-${Date.now()}`;
+      activeRequestIdRef.current = requestId;
+      ttsAbortRef.current?.abort();
+      ttsAbortRef.current = new AbortController();
+      setIsGenerating(true);
+      setEmotion("neutral");
+      setStreamingText("");
+      setMessages((prev) => [
+        ...prev,
+        { id: requestId, role: "user", content: clean, timestamp: Date.now() }
+      ]);
 
-    try {
-      await window.nikaAPI.sendChatMessage({ text: clean, requestId });
-    } catch (err) {
+      try {
+        await window.nikaAPI.sendChatMessage({
+          text: clean,
+          requestId,
+          isVoiceInput: opts?.isVoiceInput,
+          confidence: opts?.confidence
+        });
+      } catch (err) {
       console.error("Chat error:", err);
       setIsGenerating(false);
       setMessages((prev) => [
@@ -160,7 +169,10 @@ export default function App() {
       onPartialTranscript: (ev) => setPartialTranscript(ev.text),
       onFinalTranscript: (ev) => {
         setPartialTranscript("");
-        void sendPromptToNika(ev.text);
+        void sendPromptToNika(ev.text, {
+          isVoiceInput: true,
+          confidence: ev.confidence
+        });
       },
       onInterrupt: () => {
         activeRequestIdRef.current = null;
@@ -251,6 +263,12 @@ export default function App() {
           if (ev.requestId !== activeRequestIdRef.current) return;
           if (ev.type === "token") {
             setStreamingText((prev) => prev + ev.delta);
+          } else if (ev.type === "transcript_corrected") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === ev.requestId ? { ...m, content: ev.correctedText } : m
+              )
+            );
           } else if (ev.type === "emotion") {
             setEmotion(ev.emotion);
           } else if (ev.type === "mind") {

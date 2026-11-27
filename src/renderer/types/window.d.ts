@@ -16,6 +16,12 @@ import type {
 export type ChatStreamEvent =
   | { requestId: string; type: "token"; delta: string }
   | { requestId: string; type: "emotion"; emotion: EmotionType }
+  | {
+      requestId: string;
+      type: "transcript_corrected";
+      rawText: string;
+      correctedText: string;
+    }
   | { requestId: string; type: "sentence"; sentence: string }
   | { requestId: string; type: "mind"; mind: NikaMindState }
   | {
@@ -33,7 +39,12 @@ export interface NikaAPI {
   listModels: () => Promise<AIModelInfo[]>;
   checkVoiceHealth: () => Promise<VoiceSidecarStatus>;
   checkSystemReadiness: () => Promise<SystemReadiness>;
-  sendChatMessage: (payload: { text: string; requestId: string }) => Promise<ChatMessage>;
+  sendChatMessage: (payload: {
+    text: string;
+    requestId: string;
+    isVoiceInput?: boolean;
+    confidence?: number;
+  }) => Promise<ChatMessage | null>;
   abortChat: () => Promise<boolean>;
   clearHistory: () => Promise<boolean>;
   getMemorySnapshot: () => Promise<MemorySnapshot>;

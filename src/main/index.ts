@@ -13,6 +13,7 @@ import { ConfigManager } from "../backend/core/config/ConfigManager.js";
 import { Logger } from "../backend/core/logging/Logger.js";
 import { MemoryManager } from "../backend/memory/MemoryManager.js";
 import { VoiceSidecarManager } from "../backend/voice/SidecarManager.js";
+import { TranscriptCorrector } from "../backend/voice/TranscriptCorrector.js";
 import type { AppSettings, MemoryCategory } from "../shared/types/index.js";
 import { TrayManager } from "./electron/TrayManager.js";
 import { MediaPermissionManager } from "./permissions/MediaPermissionManager.js";
@@ -28,7 +29,9 @@ let isQuitting = false;
 const configManager = new ConfigManager(app.getPath("userData"));
 const memoryManager = new MemoryManager(app.getPath("userData"));
 const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
-const nikaBrain = new NikaBrain(new OpenAICompatibleProvider());
+const sharedProvider = new OpenAICompatibleProvider();
+const nikaBrain = new NikaBrain(sharedProvider);
+const transcriptCorrector = new TranscriptCorrector(sharedProvider);
 const toolRegistry = new ToolRegistry();
 registerAgentTools({
   registry: toolRegistry,
@@ -163,10 +166,40 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "nika:chat-send",
-    async (_event, payload: { text: string; requestId: string }) => {
+    async (
+      _event,
+      payload: {
+        text: string;
+        requestId: string;
+        isVoiceInput?: boolean;
+        confidence?: number;
+      }
+    ) => {
       const settings = configManager.getSettings();
-      memoryManager.extractAndStoreFromUserMessage(payload.text);
-      const mindAfterUser = memoryManager.updateMindFromUserMessage(payload.text);
+      let effectiveModel = settings.ai.model;
+      if (payload.isVoiceInput && effectiveModel === "auto") {
+        effectiveModel = await aiClient.resolveEffectiveModel(settings.ai).catch(() => "auto");
+      }
+      const correction = await transcriptCorrector.correct({
+        text: payload.text,
+        confidence: payload.confidence,
+        isVoiceInput: payload.isVoiceInput,
+        config: { ...settings.ai, model: effectiveModel },
+        recentHistory: memoryManager.getRecentHistory(),
+        memories: memoryManager.getSnapshot().memories
+      });
+      const finalUserText = correction.correctedText;
+      if (correction.wasModified) {
+        mainWindow?.webContents.send("nika:chat-stream", {
+          requestId: payload.requestId,
+          type: "transcript_corrected",
+          rawText: correction.rawText,
+          correctedText: finalUserText
+        });
+      }
+
+      memoryManager.extractAndStoreFromUserMessage(finalUserText);
+      const mindAfterUser = memoryManager.updateMindFromUserMessage(finalUserText);
       mainWindow?.webContents.send("nika:chat-stream", {
         requestId: payload.requestId,
         type: "mind",
@@ -175,7 +208,7 @@ function registerIpcHandlers(): void {
 
       const memSnap = memoryManager.getSnapshot();
       const contextAnalysis = nikaBrain.analyzeContext({
-        userText: payload.text,
+        userText: finalUserText,
         recentHistory: memoryManager.getRecentHistory(),
         memories: memSnap.memories,
         mind: mindAfterUser
@@ -184,13 +217,13 @@ function registerIpcHandlers(): void {
       const systemPromptOverride = memoryManager.buildSystemPrompt({
         baseSystemPrompt: settings.ai.systemPrompt,
         persona: settings.persona,
-        userText: payload.text,
+        userText: finalUserText,
         contextAnalysis
       });
 
       try {
         const assistantMsg = await aiClient.sendMessage({
-          userText: payload.text,
+          userText: finalUserText,
           config: settings.ai,
           systemPromptOverride,
           toolRegistry,
@@ -227,7 +260,7 @@ function registerIpcHandlers(): void {
         memoryManager.appendHistory({
           id: `user-${Date.now()}`,
           role: "user",
-          content: payload.text,
+          content: finalUserText,
           timestamp: Date.now()
         });
         memoryManager.appendHistory(assistantMsg);
