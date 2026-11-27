@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.env
+*.log
+voice-engine/.venv/
+voice-engine/__pycache__/
+voice-engine/models/
+*.onnx
+*.bin
+*.pt
+*.pth
+!src/assets/avatars/.gitkeep
