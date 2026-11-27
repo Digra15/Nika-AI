@@ -121,21 +121,58 @@ function createCutoutCanvas(
     if (y < h - 1) pushIfBg(x, y + 1);
   }
 
+  // Pass 1: Erode/feather 2px outer fringe & decontaminate dark studio background halo
+  const alphaCopy = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    alphaCopy[i] = data[i * 4 + 3];
+  }
+
   for (let y = 2; y < h - 2; y++) {
     for (let x = 2; x < w - 2; x++) {
       const idx = y * w + x;
       if (bgMask[idx]) continue;
-      let bgCount = 0;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (bgMask[(y + dy) * w + (x + dx)]) bgCount++;
+      let bg1 = 0;
+      let bg2 = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (bgMask[(y + dy) * w + (x + dx)]) {
+            if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) bg1++;
+            else bg2++;
+          }
         }
       }
-      if (bgCount > 0) {
-        const alpha = Math.max(0.15, 1 - bgCount * 0.14);
-        data[idx * 4 + 3] = Math.round(255 * alpha);
+      if (bg1 > 0 || bg2 > 0) {
+        const o = idx * 4;
+        const r = data[o];
+        const g = data[o + 1];
+        const b = data[o + 2];
+        const dr = r - bgR;
+        const dg = g - bgG;
+        const db = b - bgB;
+        const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+
+        // Soften alpha smoothly on 2px perimeter
+        let factor = Math.max(0.08, 1 - bg1 * 0.18 - bg2 * 0.05);
+        // Strongly suppress dark studio fringe pixels right on the cut edge
+        if (bg1 >= 2 && dist < tolerance * 1.55) {
+          factor *= 0.35;
+        }
+        alphaCopy[idx] = Math.round(255 * factor);
+
+        // Decontaminate dark background color bleed on edge pixels
+        if (bg1 > 0 && dist > 1) {
+          const lift = Math.min(0.45, bg1 * 0.08);
+          data[o] = Math.min(255, Math.round(r + (r - bgR) * lift));
+          data[o + 1] = Math.min(255, Math.round(g + (g - bgG) * lift));
+          data[o + 2] = Math.min(255, Math.round(b + (b - bgB) * lift));
+        }
       }
     }
+  }
+
+  for (let i = 0; i < w * h; i++) {
+    data[i * 4 + 3] = alphaCopy[i];
   }
 
   ctx.putImageData(imgData, 0, 0);
@@ -307,20 +344,21 @@ function extractFaceParts(
       const dg = Math.abs(eData[idx + 1] - bData[idx + 1]);
       const db = Math.abs(eData[idx + 2] - bData[idx + 2]);
       const diff = dr + dg + db;
-      if (diff <= 18) continue;
+      // Ignore subtle JPG compression differences on skin to avoid rectangular patch edges
+      if (diff <= 30) continue;
 
       const nx = x / w;
-      const alpha = Math.min(255, Math.round(ea * Math.min(1, (diff - 14) / 28)));
+      const alpha = Math.min(255, Math.round(ea * Math.min(1, (diff - 26) / 36)));
 
       let target: ImageData | null = null;
       let r = eData[idx];
       let g = eData[idx + 1];
       let b = eData[idx + 2];
-      const outAlpha = alpha;
+      let outAlpha = alpha;
 
-      if (ny < 0.232) {
+      if (ny < 0.234) {
         target = browImg;
-      } else if (ny < 0.282) {
+      } else if (ny < 0.283) {
         const inLeftIrisBox = nx >= 0.382 && nx <= 0.434 && ny >= 0.244 && ny <= 0.278;
         const inRightIrisBox = nx >= 0.566 && nx <= 0.618 && ny >= 0.244 && ny <= 0.278;
         const maxC = Math.max(r, g, b);
@@ -341,11 +379,19 @@ function extractFaceParts(
         } else {
           target = eyeImg;
         }
-      } else if (ny < 0.305 && nx >= 0.472 && nx <= 0.528) {
+      } else if (ny < 0.305 && nx >= 0.474 && nx <= 0.526) {
         target = noseImg;
-      } else if (ny >= 0.276 && ny < 0.316 && (nx < 0.468 || nx > 0.532)) {
+      } else if (ny >= 0.278 && ny < 0.316 && (nx < 0.47 || nx > 0.53)) {
+        // Feathered elliptical cheek blush falloff so there is zero rectangular cut edge
+        const cheekCx = nx < 0.5 ? 0.405 : 0.595;
+        const cheekCy = 0.296;
+        const dx = (nx - cheekCx) / 0.055;
+        const dy = (ny - cheekCy) / 0.018;
+        const radial = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy));
+        if (radial <= 0) continue;
+        outAlpha = Math.round(alpha * Math.min(1, radial * 1.6));
         target = blushImg;
-      } else if (ny >= 0.305) {
+      } else if (ny >= 0.305 && nx >= 0.42 && nx <= 0.58) {
         target = mouthImg;
       }
 
@@ -500,9 +546,9 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
         bhCtx.fillRect(0, backHair.height * 0.29, backHair.width, backHair.height * 0.04);
         bhCtx.globalCompositeOperation = "source-over";
       }
-      const headBlank = createCutoutCanvas(imHeadBlank, 42, true);
-      const bangsFront = createCutoutCanvas(imBangsFront, 42, true);
-      const head = createCutoutCanvas(imHead, 42, true);
+      const headBlank = createCutoutCanvas(imHeadBlank, 46, true);
+      const bangsFront = createCutoutCanvas(imBangsFront, 52, true);
+      const head = createCutoutCanvas(imHead, 46, true);
       const armsCutout = createCutoutCanvas(imArms, 36);
       const talking = createCutoutCanvas(imTalking, 42);
       const mouthStages = buildMouthStages(head, talking);
