@@ -47,6 +47,8 @@ export class VoiceSidecarManager {
       cwd: path.join(this.projectRoot, "voice-engine"),
       env: {
         ...process.env,
+        PYTHONIOENCODING: "utf-8",
+        PYTHONUTF8: "1",
         NIKA_VOICE_HOST: config.host,
         NIKA_VOICE_PORT: String(config.port),
         NIKA_STT_MODEL: config.sttModel,
