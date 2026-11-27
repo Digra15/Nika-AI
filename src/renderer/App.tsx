@@ -21,6 +21,7 @@ import type {
   VoiceSidecarStatus
 } from "../shared/types/index";
 import { AudioPipeline } from "./audio/AudioPipeline";
+import type { AvatarGestureType } from "./avatar/AvatarController";
 import { AvatarScene } from "./avatar/AvatarScene";
 import { NikaBootScreen } from "./components/NikaBootScreen";
 import { SettingsModal } from "./components/SettingsModal";
@@ -49,6 +50,10 @@ export default function App() {
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [lastSpeaker, setLastSpeaker] = useState<string | null>(null);
   const [lastVoiceEmotion, setLastVoiceEmotion] = useState<string | null>(null);
+  const [gestureSignal, setGestureSignal] = useState<{
+    type: AvatarGestureType;
+    seq: number;
+  } | null>(null);
   const [activePlan, setActivePlan] = useState<{
     goal: string;
     doneCount: number;
@@ -286,6 +291,11 @@ export default function App() {
             setEmotion(ev.emotion);
           } else if (ev.type === "mind") {
             setMind(ev.mind);
+          } else if (ev.type === "gesture") {
+            setGestureSignal({
+              type: ev.gesture as AvatarGestureType,
+              seq: Date.now()
+            });
           } else if (ev.type === "plan") {
             setActivePlan(ev.plan);
           } else if (ev.type === "tool") {
@@ -538,6 +548,8 @@ export default function App() {
               avatarBase64={avatarBase64}
               avatarState={avatarState}
               emotion={emotion}
+              mood={mind.mood}
+              gestureSignal={gestureSignal}
               audioPipeline={audioPipelineRef.current}
             />
           )}

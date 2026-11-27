@@ -43,6 +43,13 @@ registerAgentTools({
       type: "mind",
       mind
     });
+  },
+  onGesture: (gesture) => {
+    mainWindow?.webContents.send("nika:chat-stream", {
+      requestId: "",
+      type: "gesture",
+      gesture
+    });
   }
 });
 registerBrainTools({

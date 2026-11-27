@@ -24,6 +24,7 @@ export type ChatStreamEvent =
     }
   | { requestId: string; type: "sentence"; sentence: string }
   | { requestId: string; type: "mind"; mind: NikaMindState }
+  | { requestId: string; type: "gesture"; gesture: string }
   | {
       requestId: string;
       type: "plan";

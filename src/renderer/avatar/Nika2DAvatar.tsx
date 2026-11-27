@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
-import type { AvatarActivityState, EmotionType } from "../../shared/types/index";
+import type { AvatarActivityState, EmotionType, MoodType } from "../../shared/types/index";
 import type { AudioPipeline } from "../audio/AudioPipeline";
+import { SpriteController, type AvatarGestureType } from "./AvatarController";
 import armsImg from "../assets/avatar/arms.jpg";
 import angryImg from "../assets/avatar/angry.jpg";
 import backHairImg from "../assets/avatar/back_hair.jpg";
@@ -18,6 +19,8 @@ import torsoImg from "../assets/avatar/torso.jpg";
 interface Nika2DAvatarProps {
   avatarState: AvatarActivityState;
   emotion: EmotionType;
+  mood?: MoodType;
+  gestureSignal?: { type: AvatarGestureType; seq: number } | null;
   audioPipeline: AudioPipeline;
 }
 
@@ -240,13 +243,22 @@ function buildMouthStages(
 export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
   avatarState,
   emotion,
+  mood,
+  gestureSignal,
   audioPipeline
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerRef = useRef({ x: 0, y: 0 });
-  const stateRef = useRef({ avatarState, emotion });
-  stateRef.current = { avatarState, emotion };
+  const spriteCtrlRef = useRef(new SpriteController());
+  const stateRef = useRef({ avatarState, emotion, mood });
+  stateRef.current = { avatarState, emotion, mood };
+
+  useEffect(() => {
+    if (gestureSignal && gestureSignal.type !== "none") {
+      spriteCtrlRef.current.gesture.trigger(gestureSignal.type);
+    }
+  }, [gestureSignal]);
 
   const rigRef = useRef<{
     ready: boolean;
@@ -626,14 +638,14 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
         return;
       }
 
-      const { avatarState: act, emotion: emo } = stateRef.current;
+      const { avatarState: act, emotion: emo, mood: currentMood } = stateRef.current;
       const mouth = audioPipeline.getMouthMetrics();
-      const isTalking = act === "talking" || act === "laughing";
+      const ctrl = spriteCtrlRef.current;
 
       // Blinking
       anim.blinkTimer += delta;
       let targetBlink = 0;
-      if (anim.blinkTimer > anim.nextBlink) {
+      if (ctrl.expression.shouldBlink(emo) && anim.blinkTimer > anim.nextBlink) {
         const elapsed = anim.blinkTimer - anim.nextBlink;
         if (elapsed < 0.14) {
           targetBlink = Math.sin((elapsed / 0.14) * Math.PI);
@@ -644,85 +656,31 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       }
       anim.blink = targetBlink;
 
-      // Gentle, natural breathing wave (~3.8s)
-      const breath = Math.sin(anim.t * 1.65);
-      const headBreath = Math.sin(anim.t * 1.65 - 0.45);
+      const targets = ctrl.emotionAnim.computeTargets({
+        t: anim.t,
+        emotion: emo,
+        avatarState: act,
+        mood: currentMood,
+        pointer: pointerRef.current,
+        mouth,
+        lipSync: ctrl.lipSync,
+        expression: ctrl.expression,
+        gesture: ctrl.gesture,
+        nowMs: now
+      });
 
-      // 4-stage lip-sync level (0 = closed, 1 = small, 2 = medium, 3 = wide)
-      // Uses volume + aa so mouth closes cleanly on pauses between syllables
-      let targetTalk = 0;
-      if (isTalking) {
-        const syllableEnergy = mouth.volume * 0.75 + mouth.aa * 0.45;
-        targetTalk = syllableEnergy > 0.14 ? Math.min(1, (syllableEnergy - 0.1) * 1.45) : 0;
-      } else if (emo === "laugh") {
-        targetTalk = 0.85 + Math.sin(anim.t * 10) * 0.15;
-      } else if (emo === "surprised") {
-        targetTalk = 0.7;
-      }
-
-      const targetHappy = emo === "happy" && !isTalking ? 1 : 0;
-
-      const px = pointerRef.current.x;
-      const py = pointerRef.current.y;
-
-      // Seat head naturally on neck (+14px) with subtle breathing so neck never stretches
-      let targetBodyY = -breath * 2.2;
-      let targetBodySX = 1 + breath * 0.005;
-      let targetBodySY = 1 + breath * 0.007;
-
-      let targetHeadX = px * 4.5 + Math.sin(anim.t * 0.9) * 1.5;
-      let targetHeadY = 14 - headBreath * 2.0 + py * 2.5;
-      let targetHeadRot = px * 0.04 + Math.sin(anim.t * 1.1) * 0.012;
-
-      // Arms subtle natural sway (no waving)
-      let targetLeftArmRot = 0.02 + Math.sin(anim.t * 1.65 - 0.4) * 0.02;
-      let targetRightArmRot = -0.02 - Math.sin(anim.t * 1.65 - 0.4) * 0.02;
-
-      // Wind in back hair
-      const targetHairWindRot =
-        Math.sin(anim.t * 2.1) * 0.018 + Math.sin(anim.t * 4.3) * 0.006 - targetHeadRot * 0.2;
-      const targetHairWindX = Math.sin(anim.t * 2.1 - 0.5) * 3.0;
-
-      if (isTalking) {
-        targetHeadY += Math.sin(anim.t * 5.2) * 2.0 - mouth.volume * 3.5;
-        targetHeadRot += Math.sin(anim.t * 2.7) * 0.025;
-        targetLeftArmRot += Math.sin(anim.t * 2.4) * 0.045 + mouth.volume * 0.025;
-        targetRightArmRot += Math.cos(anim.t * 2.1) * 0.045 - mouth.volume * 0.025;
-        if (mouth.volume < 0.08) {
-          targetBodySY += 0.005;
-          targetBodyY -= 1.5;
-        }
-      } else if (act === "listening") {
-        targetHeadRot += -0.05;
-        targetHeadY += -2;
-      } else if (emo === "thinking" || act === "thinking") {
-        targetHeadRot += 0.065;
-        targetHeadY += -2;
-      } else if (emo === "happy" || emo === "laugh") {
-        targetBodyY += Math.abs(Math.sin(anim.t * 3.2)) * -4;
-        targetHeadY += Math.abs(Math.sin(anim.t * 3.2)) * -5;
-        targetHeadRot += Math.sin(anim.t * 3.2) * 0.03;
-      } else if (emo === "sad") {
-        targetHeadY += 8;
-        targetHeadRot += -0.035;
-      } else if (emo === "angry") {
-        targetHeadX += Math.sin(anim.t * 22) * 2.0;
-      } else if (emo === "surprised") {
-        targetHeadY += -6;
-      }
-
-      anim.bodyY = lerp(anim.bodyY, targetBodyY, delta * 7);
-      anim.bodySX = lerp(anim.bodySX, targetBodySX, delta * 7);
-      anim.bodySY = lerp(anim.bodySY, targetBodySY, delta * 7);
-      anim.headX = lerp(anim.headX, targetHeadX, delta * 8);
-      anim.headY = lerp(anim.headY, targetHeadY, delta * 8);
-      anim.headRot = lerp(anim.headRot, targetHeadRot, delta * 8);
-      anim.hairWindRot = lerp(anim.hairWindRot, targetHairWindRot, delta * 6);
-      anim.hairWindX = lerp(anim.hairWindX, targetHairWindX, delta * 6);
-      anim.leftArmRot = lerp(anim.leftArmRot, targetLeftArmRot, delta * 7);
-      anim.rightArmRot = lerp(anim.rightArmRot, targetRightArmRot, delta * 7);
-      anim.talkMix = lerp(anim.talkMix, targetTalk, delta * 34);
-      anim.happyMix = lerp(anim.happyMix, targetHappy, delta * 12);
+      anim.bodyY = lerp(anim.bodyY, targets.bodyY, delta * 7);
+      anim.bodySX = lerp(anim.bodySX, targets.bodySX, delta * 7);
+      anim.bodySY = lerp(anim.bodySY, targets.bodySY, delta * 7);
+      anim.headX = lerp(anim.headX, targets.headX, delta * 8);
+      anim.headY = lerp(anim.headY, targets.headY, delta * 8);
+      anim.headRot = lerp(anim.headRot, targets.headRot, delta * 8);
+      anim.hairWindRot = lerp(anim.hairWindRot, targets.hairWindRot, delta * 6);
+      anim.hairWindX = lerp(anim.hairWindX, targets.hairWindX, delta * 6);
+      anim.leftArmRot = lerp(anim.leftArmRot, targets.leftArmRot, delta * 7);
+      anim.rightArmRot = lerp(anim.rightArmRot, targets.rightArmRot, delta * 7);
+      anim.talkMix = lerp(anim.talkMix, targets.talkMix, delta * 34);
+      anim.happyMix = lerp(anim.happyMix, targets.happyMix, delta * 12);
       anim.volume = lerp(anim.volume, mouth.volume, delta * 18);
 
       ctx.clearRect(0, 0, rig.w, rig.h);

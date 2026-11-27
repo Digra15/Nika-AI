@@ -8,8 +8,9 @@ export function registerAgentTools(params: {
   memoryManager: MemoryManager;
   browserService: AgentBrowserService;
   onMindUpdated?: (mind: NikaMindState) => void;
+  onGesture?: (gesture: string) => void;
 }): void {
-  const { registry, memoryManager, browserService, onMindUpdated } = params;
+  const { registry, memoryManager, browserService, onMindUpdated, onGesture } = params;
 
   registry.register(
     {
@@ -237,6 +238,32 @@ export function registerAgentTools(params: {
         target: String(args.target ?? ""),
         value: args.value !== undefined ? String(args.value) : undefined
       });
+    }
+  );
+
+  registry.register(
+    {
+      type: "function",
+      function: {
+        name: "avatar_gesture",
+        description:
+          "Gerakkan tubuh/kepala avatar NIKA (gesture-controller) saat berbicara atau merespons: nod (mengangguk), tilt (miring kepala), cheer (sorak senang), thinking_pose, atau bow (membungkuk sopan).",
+        parameters: {
+          type: "object",
+          properties: {
+            gesture: {
+              type: "string",
+              enum: ["nod", "tilt", "cheer", "thinking_pose", "bow"]
+            }
+          },
+          required: ["gesture"]
+        }
+      }
+    },
+    async (args) => {
+      const gesture = String(args.gesture ?? "nod");
+      onGesture?.(gesture);
+      return { triggered: gesture };
     }
   );
 }

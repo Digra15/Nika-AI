@@ -4,14 +4,17 @@ import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRM, VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
-import type { AvatarActivityState, EmotionType } from "../../shared/types/index";
+import type { AvatarActivityState, EmotionType, MoodType } from "../../shared/types/index";
 import type { AudioPipeline } from "../audio/AudioPipeline";
+import type { AvatarGestureType } from "./AvatarController";
 import { Nika2DAvatar } from "./Nika2DAvatar";
 
 interface AvatarSceneProps {
   avatarBase64: string | null;
   avatarState: AvatarActivityState;
   emotion: EmotionType;
+  mood?: MoodType;
+  gestureSignal?: { type: AvatarGestureType; seq: number } | null;
   audioPipeline: AudioPipeline;
 }
 
@@ -278,6 +281,8 @@ export const AvatarScene: React.FC<AvatarSceneProps> = (props) => {
       <Nika2DAvatar
         avatarState={props.avatarState}
         emotion={props.emotion}
+        mood={props.mood}
+        gestureSignal={props.gestureSignal}
         audioPipeline={props.audioPipeline}
       />
     );
