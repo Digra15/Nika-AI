@@ -18,6 +18,11 @@ export type ChatStreamEvent =
   | { requestId: string; type: "emotion"; emotion: EmotionType }
   | { requestId: string; type: "sentence"; sentence: string }
   | { requestId: string; type: "mind"; mind: NikaMindState }
+  | {
+      requestId: string;
+      type: "plan";
+      plan: { goal: string; doneCount: number; totalCount: number } | null;
+    }
   | { requestId: string; type: "tool"; tool: { name: string; status: "running" | "done" } }
   | { requestId: string; type: "done"; message: ChatMessage };
 

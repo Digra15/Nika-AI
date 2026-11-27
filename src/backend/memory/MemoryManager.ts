@@ -11,6 +11,7 @@ import type {
   PersonaConfig
 } from "../../shared/types/index.js";
 import { HUMANIZER_PROMPT_RULES } from "../ai/humanizer/ResponseHumanizer.js";
+import type { ContextAnalysis } from "../ai/brain/NikaBrain.js";
 
 interface PersistedMemoryData {
   mind: NikaMindState;
@@ -403,8 +404,9 @@ export class MemoryManager {
     baseSystemPrompt: string;
     persona: PersonaConfig;
     userText: string;
+    contextAnalysis?: ContextAnalysis;
   }): string {
-    const { baseSystemPrompt, persona, userText } = params;
+    const { baseSystemPrompt, persona, userText, contextAnalysis } = params;
     const mind = this.data.mind;
     const relevantMemories = this.selectRelevantMemories(userText, 8);
 
@@ -438,11 +440,25 @@ export class MemoryManager {
 
     sections.push(
       "",
-      `[AUTONOMOUS AGENT CAPABILITIES]`,
-      `You have real agent tools: memory_remember, memory_recall, memory_forget, update_feeling, web_search, web_browse, and web_interact (powered by Vercel agent-browser).`,
-      `Use memory_remember whenever the user shares important personal facts, preferences, or goals you should remember long-term.`,
-      `Use web_search or web_browse whenever the user asks about real-time information, news, current events, facts you are unsure of, or websites.`
+      `[NIKA COGNITIVE BRAIN & SKILLS]`,
+      `- reasoning: gunakan brain_reason untuk memecahkan masalah kompleks secara bertahap.`,
+      `- long-term-memory: gunakan memory_remember / memory_recall / memory_forget.`,
+      `- context-awareness: pahami niat, topik, dan konteks emosional percakapan.`,
+      `- planning-agent: gunakan brain_plan_create & brain_plan_update untuk tugas multi-langkah.`,
+      `- self-reflection: gunakan brain_reflect untuk mengevaluasi hasil kerja sebelum menjawab.`,
+      `- multi-agent-orchestration: gunakan brain_orchestrate untuk menjalankan sub-agent spesialis (researcher, reasoner, planner, critic) secara paralel.`,
+      `- web-agent: gunakan web_search, web_browse, web_interact (Vercel agent-browser) untuk mencari info live dari web.`
     );
+
+    if (contextAnalysis) {
+      sections.push(
+        "",
+        `[CONTEXT AWARENESS]`,
+        `Intent: ${contextAnalysis.intent} | Complexity: ${contextAnalysis.complexity}`,
+        `Topic Focus: ${contextAnalysis.topic}`,
+        `Recommended Skills: ${contextAnalysis.suggestedSkills.join(", ")}`
+      );
+    }
 
     sections.push("", HUMANIZER_PROMPT_RULES, "", `[RESPONSE RULES]`, baseSystemPrompt);
 

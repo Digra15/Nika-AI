@@ -2,6 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { NikaBrain } from "../backend/ai/brain/NikaBrain.js";
+import { registerBrainTools } from "../backend/ai/brain/registerBrainTools.js";
+import { OpenAICompatibleProvider } from "../backend/ai/providers/OpenAICompatibleProvider.js";
 import { NineRouterClient } from "../backend/ai/router/NineRouterClient.js";
 import { ToolRegistry } from "../backend/ai/tool-calling/ToolRegistry.js";
 import { registerAgentTools } from "../backend/ai/tool-calling/registerAgentTools.js";
@@ -25,6 +28,7 @@ let isQuitting = false;
 const configManager = new ConfigManager(app.getPath("userData"));
 const memoryManager = new MemoryManager(app.getPath("userData"));
 const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
+const nikaBrain = new NikaBrain(new OpenAICompatibleProvider());
 const toolRegistry = new ToolRegistry();
 registerAgentTools({
   registry: toolRegistry,
@@ -35,6 +39,24 @@ registerAgentTools({
       requestId: "",
       type: "mind",
       mind
+    });
+  }
+});
+registerBrainTools({
+  registry: toolRegistry,
+  brain: nikaBrain,
+  getAIConfig: () => configManager.getSettings().ai,
+  onPlanUpdated: (plan) => {
+    mainWindow?.webContents.send("nika:chat-stream", {
+      requestId: "",
+      type: "plan",
+      plan: plan
+        ? {
+            goal: plan.goal,
+            doneCount: plan.steps.filter((s) => s.status === "done").length,
+            totalCount: plan.steps.length
+          }
+        : null
     });
   }
 });
@@ -151,10 +173,19 @@ function registerIpcHandlers(): void {
         mind: mindAfterUser
       });
 
+      const memSnap = memoryManager.getSnapshot();
+      const contextAnalysis = nikaBrain.analyzeContext({
+        userText: payload.text,
+        recentHistory: memoryManager.getRecentHistory(),
+        memories: memSnap.memories,
+        mind: mindAfterUser
+      });
+
       const systemPromptOverride = memoryManager.buildSystemPrompt({
         baseSystemPrompt: settings.ai.systemPrompt,
         persona: settings.persona,
-        userText: payload.text
+        userText: payload.text,
+        contextAnalysis
       });
 
       try {

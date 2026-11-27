@@ -47,6 +47,11 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [activePlan, setActivePlan] = useState<{
+    goal: string;
+    doneCount: number;
+    totalCount: number;
+  } | null>(null);
   const [emotion, setEmotion] = useState<EmotionType>("neutral");
   const [mind, setMind] = useState<NikaMindState>({
     mood: "cheerful",
@@ -250,6 +255,8 @@ export default function App() {
             setEmotion(ev.emotion);
           } else if (ev.type === "mind") {
             setMind(ev.mind);
+          } else if (ev.type === "plan") {
+            setActivePlan(ev.plan);
           } else if (ev.type === "tool") {
             setActiveTool(ev.tool.status === "running" ? ev.tool.name : null);
           } else if (ev.type === "sentence") {
@@ -477,6 +484,11 @@ export default function App() {
             <span className="nika-pill" title={`Happiness ${mind.happiness} | Energy ${mind.energy} | Trust ${mind.trust}`}>
               Mood: {mind.mood} · ❤️ {mind.affection}%
             </span>
+            {activePlan && (
+              <span className="nika-pill" title={activePlan.goal}>
+                Plan: {activePlan.doneCount}/{activePlan.totalCount}
+              </span>
+            )}
             {activeTool && (
               <span className="nika-pill cyan">Agent: {activeTool}</span>
             )}
