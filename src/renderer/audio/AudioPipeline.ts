@@ -474,7 +474,7 @@ export class AudioPipeline {
 
     // Wait until this sentence finishes playing + configured natural breath pause
     // so the next queued sentence never chases or interrupts the current one.
-    const pauseMs = Math.max(80, Math.min(1200, params.config.sentencePauseMs ?? 320));
+    const pauseMs = Math.max(80, Math.min(2000, params.config.sentencePauseMs ?? 480));
     if (sentenceEndTime > ctx.currentTime && !params.signal?.aborted) {
       const remainingMs = Math.max(0, (sentenceEndTime - ctx.currentTime) * 1000) + pauseMs;
       await new Promise<void>((resolve) => {

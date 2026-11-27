@@ -618,13 +618,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </label>
                   <label className="nika-field">
-                    Jeda Napas Antar Kalimat ({draft.voice.sentencePauseMs ?? 320} ms)
+                    Jeda Napas Antar Kalimat ({draft.voice.sentencePauseMs ?? 480} ms)
                     <input
                       type="range"
-                      min={120}
-                      max={900}
-                      step={20}
-                      value={draft.voice.sentencePauseMs ?? 320}
+                      min={100}
+                      max={2000}
+                      step={50}
+                      value={draft.voice.sentencePauseMs ?? 480}
                       onChange={(e) =>
                         applyInstant({
                           ...draft,
