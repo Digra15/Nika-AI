@@ -81,6 +81,9 @@ export interface VoiceConfig {
   ttsVoiceId: string;
   ttsVoiceEn: string;
   ttsSpeed: number;
+  sentencePauseMs: number;
+  breathAudioEnabled: boolean;
+  breathVolume: number;
   vadThreshold: number;
   vadMinSilenceMs: number;
   listeningMode: ListeningMode;

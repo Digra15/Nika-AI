@@ -617,6 +617,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       }
                     />
                   </label>
+                  <label className="nika-field">
+                    Jeda Napas Antar Kalimat ({draft.voice.sentencePauseMs ?? 320} ms)
+                    <input
+                      type="range"
+                      min={120}
+                      max={900}
+                      step={20}
+                      value={draft.voice.sentencePauseMs ?? 320}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, sentencePauseMs: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="nika-field">
+                    Tarik Napas Natural
+                    <select
+                      className="nika-select"
+                      value={(draft.voice.breathAudioEnabled ?? true) ? "true" : "false"}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, breathAudioEnabled: e.target.value === "true" }
+                        })
+                      }
+                    >
+                      <option value="true">Aktif (Natural Inhale)</option>
+                      <option value="false">Nonaktif (Hening Saja)</option>
+                    </select>
+                  </label>
+                  <label className="nika-field">
+                    Volume Tarik Napas ({Math.round((draft.voice.breathVolume ?? 0.18) * 100)}%)
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.5}
+                      step={0.02}
+                      value={draft.voice.breathVolume ?? 0.18}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, breathVolume: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
                 </div>
               </>
             )}

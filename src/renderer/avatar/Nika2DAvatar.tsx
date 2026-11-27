@@ -688,6 +688,10 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
         targetHeadRot += Math.sin(anim.t * 2.7) * 0.025;
         targetLeftArmRot += Math.sin(anim.t * 2.4) * 0.045 + mouth.volume * 0.025;
         targetRightArmRot += Math.cos(anim.t * 2.1) * 0.045 - mouth.volume * 0.025;
+        if (mouth.volume < 0.08) {
+          targetBodySY += 0.005;
+          targetBodyY -= 1.5;
+        }
       } else if (act === "listening") {
         targetHeadRot += -0.05;
         targetHeadY += -2;

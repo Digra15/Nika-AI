@@ -33,6 +33,7 @@ export class AudioPipeline {
   private scheduledSources = new Set<AudioBufferSourceNode>();
   private nextScheduleTime = 0;
   private isPlaying = false;
+  private lastSpokenEndedAt = 0;
 
   private listeningMode: ListeningMode = "auto";
   private wakeWord = "nika";
@@ -383,6 +384,14 @@ export class AudioPipeline {
     }
     if (!this.analyser) return;
 
+    const nowMs = Date.now();
+    const isContinuingUtterance = nowMs - this.lastSpokenEndedAt < 2500;
+    const breathEnabled = params.config.breathAudioEnabled ?? true;
+    const breathVol = params.config.breathVolume ?? 0.18;
+    if (isContinuingUtterance && breathEnabled && breathVol > 0.01) {
+      this.playSoftBreathInhale(ctx, breathVol);
+    }
+
     const url = `http://${params.config.host}:${params.config.port}/tts/stream`;
     const res = await fetch(url, {
       method: "POST",
@@ -463,10 +472,11 @@ export class AudioPipeline {
       source.start(startAt);
     }
 
-    // Wait until this sentence finishes playing + a relaxed natural pause before resolving
+    // Wait until this sentence finishes playing + configured natural breath pause
     // so the next queued sentence never chases or interrupts the current one.
+    const pauseMs = Math.max(80, Math.min(1200, params.config.sentencePauseMs ?? 320));
     if (sentenceEndTime > ctx.currentTime && !params.signal?.aborted) {
-      const remainingMs = Math.max(0, (sentenceEndTime - ctx.currentTime) * 1000) + 180;
+      const remainingMs = Math.max(0, (sentenceEndTime - ctx.currentTime) * 1000) + pauseMs;
       await new Promise<void>((resolve) => {
         if (params.signal?.aborted) {
           resolve();
@@ -483,6 +493,42 @@ export class AudioPipeline {
         params.signal?.addEventListener("abort", onAbort, { once: true });
       });
     }
+    if (!params.signal?.aborted) {
+      this.lastSpokenEndedAt = Date.now();
+    }
+  }
+
+  private playSoftBreathInhale(ctx: AudioContext, volume: number): void {
+    if (!this.analyser) return;
+    const durationSec = 0.18;
+    const sampleCount = Math.floor(ctx.sampleRate * durationSec);
+    const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    let prev = 0;
+    for (let i = 0; i < sampleCount; i++) {
+      const t = i / sampleCount;
+      const env = Math.pow(Math.sin(Math.PI * t), 1.6);
+      const white = Math.random() * 2 - 1;
+      prev = (prev + 0.04 * white) / 1.04;
+      data[i] = (prev * 2.2 + white * 0.25) * env;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 950;
+    filter.Q.value = 1.4;
+
+    const gain = ctx.createGain();
+    gain.gain.value = Math.max(0, Math.min(0.5, volume)) * 0.22;
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.analyser);
+    src.start(ctx.currentTime + 0.02);
   }
 
   stopPlayback(): void {

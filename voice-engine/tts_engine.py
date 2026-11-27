@@ -102,8 +102,9 @@ def clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r"[—–;:\n\r]+", ", ", cleaned)
     # Remove quotes, parentheses, slashes, and misc symbols
     cleaned = re.sub(r"[\"'“”‘’()\[\]{}/\\|@^+=<>$%*&]+", " ", cleaned)
-    # Collapse repeated punctuation and convert '!' to '.' so PocketTTS never reads '!' aloud
-    cleaned = re.sub(r"\.{2,}", ".", cleaned)
+    # Collapse ellipsis into a gentle comma pause and convert '!' to '.' so PocketTTS never reads '!' aloud
+    cleaned = re.sub(r"\.{3,}", ", ", cleaned)
+    cleaned = re.sub(r"\.{2}", ".", cleaned)
     cleaned = re.sub(r"!+", ".", cleaned)
     cleaned = re.sub(r"\?{2,}", "?", cleaned)
     # Keep only letters, digits, whitespace, and basic intonation (, . ?)
