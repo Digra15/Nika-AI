@@ -1,7 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain } from "electron";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { DesktopControlService } from "../backend/agent-skills/DesktopControlService.js";
+import { registerDesktopTools } from "../backend/agent-skills/registerDesktopTools.js";
 import { NikaBrain } from "../backend/ai/brain/NikaBrain.js";
 import { registerBrainTools } from "../backend/ai/brain/registerBrainTools.js";
 import { OpenAICompatibleProvider } from "../backend/ai/providers/OpenAICompatibleProvider.js";
@@ -29,6 +31,7 @@ let isQuitting = false;
 const configManager = new ConfigManager(app.getPath("userData"));
 const memoryManager = new MemoryManager(app.getPath("userData"));
 const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
+const desktopControl = new DesktopControlService(PROJECT_ROOT);
 const sharedProvider = new OpenAICompatibleProvider();
 const toolRegistry = new ToolRegistry();
 const nikaBrain = new NikaBrain(sharedProvider, toolRegistry);
@@ -68,6 +71,76 @@ registerBrainTools({
           }
         : null
     });
+  }
+});
+registerDesktopTools({
+  registry: toolRegistry,
+  desktop: desktopControl,
+  browserService: agentBrowser,
+  getAIConfig: () => configManager.getSettings().ai,
+  captureScreenSummary: async (question, aiConfig) => {
+    const winInfo = await desktopControl.computerAction({ action: "active_window" });
+    const sources = await desktopCapturer
+      .getSources({ types: ["screen"], thumbnailSize: { width: 1280, height: 720 } })
+      .catch(() => []);
+    const primary = sources[0];
+    if (!primary) {
+      return { ...winInfo, screenshotSaved: false };
+    }
+    const pngBuf = primary.thumbnail.toPNG();
+    const outPath = path.join(app.getPath("userData"), "last-screen.png");
+    fs.writeFileSync(outPath, pngBuf);
+
+    let visualAnalysis: string | undefined;
+    if (aiConfig && aiConfig.model && aiConfig.model !== "auto") {
+      try {
+        const b64 = pngBuf.toString("base64");
+        const res = await fetch(`${aiConfig.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${aiConfig.apiKey}`
+          },
+          body: JSON.stringify({
+            model: aiConfig.model,
+            max_tokens: 300,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      question ||
+                      "Ringkas apa yang sedang terlihat di layar desktop ini secara singkat dan jelas."
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: `data:image/png;base64,${b64}` }
+                  }
+                ]
+              }
+            ]
+          })
+        });
+        if (res.ok) {
+          const json = (await res.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
+          };
+          visualAnalysis = json.choices?.[0]?.message?.content?.trim();
+        }
+      } catch {
+        // Vision fallback to active window metadata
+      }
+    }
+
+    return {
+      ...winInfo,
+      screenshotSaved: true,
+      screenshotPath: outPath,
+      screenSize: primary.thumbnail.getSize(),
+      ...(visualAnalysis ? { visualAnalysis } : {})
+    };
   }
 });
 const aiClient = new NineRouterClient();

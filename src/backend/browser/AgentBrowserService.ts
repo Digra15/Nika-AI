@@ -195,6 +195,58 @@ export class AgentBrowserService {
     };
   }
 
+  /** playwright-style multi-step website automation sequence */
+  async runAutomation(
+    steps: Array<{
+      action: "open" | "click" | "fill" | "press" | "wait" | "eval" | "snapshot" | "get_text";
+      target?: string;
+      value?: string;
+    }>
+  ): Promise<{ url: string; stepResults: string[]; finalSnapshot: string; finalText: string }> {
+    const stepResults: string[] = [];
+    for (const s of steps.slice(0, 12)) {
+      if (s.action === "open" && s.target) {
+        const u = /^https?:\/\//i.test(s.target) ? s.target : `https://${s.target}`;
+        await this.run(["open", u], 30000);
+        stepResults.push(`opened ${u}`);
+      } else if (s.action === "click" && s.target) {
+        await this.run(["click", s.target], 15000);
+        stepResults.push(`clicked ${s.target}`);
+      } else if (s.action === "fill" && s.target) {
+        await this.run(["fill", s.target, s.value ?? ""], 15000);
+        stepResults.push(`filled ${s.target}`);
+      } else if (s.action === "press" && s.target) {
+        await this.run(["press", s.target], 15000);
+        stepResults.push(`pressed ${s.target}`);
+      } else if (s.action === "wait") {
+        await this.run(["wait", s.target || "1000"], 15000);
+        stepResults.push(`waited ${s.target || "1000"}ms`);
+      } else if (s.action === "eval" && s.target) {
+        const out = await this.run(["eval", s.target], 15000);
+        stepResults.push(`eval: ${truncateText(out, 600)}`);
+      } else if (s.action === "snapshot") {
+        const out = await this.run(["snapshot", "-i"], 15000);
+        stepResults.push(truncateText(out, 800));
+      } else if (s.action === "get_text") {
+        const out = await this.run(["get", "text", s.target || "body"], 15000);
+        stepResults.push(truncateText(out, 800));
+      }
+    }
+
+    const [url, snapshot, text] = await Promise.all([
+      this.run(["get", "url"], 10000).catch(() => ""),
+      this.run(["snapshot", "-i"], 15000).catch(() => ""),
+      this.run(["get", "text", "body"], 15000).catch(() => "")
+    ]);
+
+    return {
+      url,
+      stepResults,
+      finalSnapshot: truncateText(snapshot, 1800),
+      finalText: truncateText(text, 2400)
+    };
+  }
+
   isReady(): boolean {
     const { cmd } = this.resolveCli();
     const hasCli = cmd.includes("npx") || fs.existsSync(cmd);
