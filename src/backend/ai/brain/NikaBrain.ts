@@ -3,8 +3,10 @@ import type {
   AIConfig,
   ChatMessage,
   MemoryItem,
-  NikaMindState
+  NikaMindState,
+  ToolCall
 } from "../../../shared/types/index.js";
+import type { ToolRegistry } from "../tool-calling/ToolRegistry.js";
 
 export type SubAgentRole = "researcher" | "reasoner" | "planner" | "critic";
 
@@ -55,7 +57,10 @@ const ROLE_PROMPTS: Record<SubAgentRole, string> = {
 export class NikaBrain {
   private activePlan: AgentPlan | null = null;
 
-  constructor(private readonly provider: LLMProvider) {}
+  constructor(
+    private readonly provider: LLMProvider,
+    private readonly toolRegistry?: ToolRegistry
+  ) {}
 
   getActivePlan(): AgentPlan | null {
     return this.activePlan ? structuredClone(this.activePlan) : null;
@@ -181,23 +186,90 @@ export class NikaBrain {
           maxTokens: Math.min(512, params.config.maxTokens)
         };
         try {
-          const { fullText } = await this.provider.streamChat({
-            messages: [
-              { id: "sys", role: "system", content: systemPrompt, timestamp: 0 },
-              {
-                id: "usr",
-                role: "user",
-                content: `Overall Goal: ${params.goal}\nYour Task: ${item.task}`,
-                timestamp: Date.now()
+          const messages: ChatMessage[] = [
+            { id: "sys", role: "system", content: systemPrompt, timestamp: 0 },
+            {
+              id: "usr",
+              role: "user",
+              content: `Overall Goal: ${params.goal}\nYour Task: ${item.task}`,
+              timestamp: Date.now()
+            }
+          ];
+          const researchTools =
+            item.role === "researcher" && this.toolRegistry
+              ? this.toolRegistry
+                  .getDefinitions()
+                  .filter((d) =>
+                    ["web_news", "web_search", "web_browse", "memory_recall"].includes(
+                      d.function.name
+                    )
+                  )
+              : undefined;
+
+          let finalOutput = "";
+          for (let step = 0; step < 3; step++) {
+            const tcMap = new Map<number, { id: string; name: string; arguments: string }>();
+            const { fullText } = await this.provider.streamChat({
+              messages,
+              config: subConfig,
+              tools: researchTools,
+              onChunk: (chunk) => {
+                if (!chunk.toolCalls) return;
+                for (const tc of chunk.toolCalls) {
+                  const ex = tcMap.get(tc.index) ?? {
+                    id: tc.id || `sub_${step}_${tc.index}`,
+                    name: "",
+                    arguments: ""
+                  };
+                  if (tc.id) ex.id = tc.id;
+                  if (tc.name) ex.name += tc.name;
+                  if (tc.argumentsDelta) ex.arguments += tc.argumentsDelta;
+                  tcMap.set(tc.index, ex);
+                }
               }
-            ],
-            config: subConfig,
-            onChunk: () => {}
-          });
+            });
+
+            if (tcMap.size > 0 && this.toolRegistry) {
+              const calls: ToolCall[] = Array.from(tcMap.entries())
+                .sort((a, b) => a[0] - b[0])
+                .map(([, tc]) => ({
+                  id: tc.id,
+                  type: "function",
+                  function: { name: tc.name, arguments: tc.arguments || "{}" }
+                }));
+              messages.push({
+                id: `sub-a-${step}`,
+                role: "assistant",
+                content: fullText || "",
+                toolCalls: calls,
+                timestamp: Date.now()
+              });
+              for (const tc of calls) {
+                let res: unknown;
+                try {
+                  const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+                  res = await this.toolRegistry.execute(tc.function.name, args);
+                } catch (err) {
+                  res = { error: err instanceof Error ? err.message : String(err) };
+                }
+                messages.push({
+                  id: `sub-t-${step}-${tc.id}`,
+                  role: "tool",
+                  toolCallId: tc.id,
+                  content: typeof res === "string" ? res : JSON.stringify(res),
+                  timestamp: Date.now()
+                });
+              }
+              continue;
+            }
+            finalOutput = fullText.trim();
+            break;
+          }
+
           return {
             role: item.role,
             task: item.task,
-            output: fullText.trim()
+            output: finalOutput
           };
         } catch (err) {
           return {

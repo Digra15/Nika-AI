@@ -102,6 +102,9 @@ export class AgentBrowserService {
     resultsText: string;
     interactiveRefs: string;
   }> {
+    if (/\b(berita|news|terbaru|terkini|headline|trending)\b/i.test(query)) {
+      return this.searchNews(query);
+    }
     const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
     await this.run(["open", url], 30000);
     const [resultsOnly, bodyText, snapshot] = await Promise.all([
@@ -114,6 +117,28 @@ export class AgentBrowserService {
       query,
       url,
       resultsText: truncateText(resultsOnly || bodyText, 3400),
+      interactiveRefs: truncateText(snapshot, 1800)
+    };
+  }
+
+  async searchNews(query: string): Promise<{
+    query: string;
+    url: string;
+    resultsText: string;
+    interactiveRefs: string;
+  }> {
+    const cleanQuery = query.trim() || "berita indonesia hari ini";
+    const url = `https://www.bing.com/news/search?q=${encodeURIComponent(cleanQuery)}`;
+    await this.run(["open", url], 30000);
+    const [bodyText, snapshot] = await Promise.all([
+      this.run(["get", "text", "body"], 14000).catch(() => ""),
+      this.run(["snapshot", "-i"], 14000).catch(() => "")
+    ]);
+
+    return {
+      query: cleanQuery,
+      url,
+      resultsText: truncateText(bodyText, 3800),
       interactiveRefs: truncateText(snapshot, 1800)
     };
   }

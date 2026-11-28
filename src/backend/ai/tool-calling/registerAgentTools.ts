@@ -183,6 +183,31 @@ export function registerAgentTools(params: {
     {
       type: "function",
       function: {
+        name: "web_news",
+        description:
+          "Cari berita terbaru dan headline terverifikasi hari ini (Indonesia atau dunia) via Bing News menggunakan Vercel agent-browser.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Topik berita, misal: 'berita indonesia hari ini', 'berita teknologi', atau 'sepak bola'."
+            }
+          },
+          required: ["query"]
+        }
+      }
+    },
+    async (args) => {
+      const query = String(args.query ?? "berita indonesia hari ini").trim();
+      return browserService.searchNews(query);
+    }
+  );
+
+  registry.register(
+    {
+      type: "function",
+      function: {
         name: "web_browse",
         description:
           "Buka URL halaman web tertentu menggunakan Vercel agent-browser dan baca isi teks serta elemen interaktifnya (@e1, @e2, ...).",

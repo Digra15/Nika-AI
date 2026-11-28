@@ -30,9 +30,9 @@ const configManager = new ConfigManager(app.getPath("userData"));
 const memoryManager = new MemoryManager(app.getPath("userData"));
 const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
 const sharedProvider = new OpenAICompatibleProvider();
-const nikaBrain = new NikaBrain(sharedProvider);
-const transcriptCorrector = new TranscriptCorrector(sharedProvider);
 const toolRegistry = new ToolRegistry();
+const nikaBrain = new NikaBrain(sharedProvider, toolRegistry);
+const transcriptCorrector = new TranscriptCorrector(sharedProvider);
 registerAgentTools({
   registry: toolRegistry,
   memoryManager,

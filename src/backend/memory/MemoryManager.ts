@@ -460,7 +460,7 @@ export class MemoryManager {
       `- planning-agent: gunakan brain_plan_create & brain_plan_update untuk tugas multi-langkah.`,
       `- self-reflection: gunakan brain_reflect untuk mengevaluasi hasil kerja sebelum menjawab.`,
       `- multi-agent-orchestration: gunakan brain_orchestrate untuk menjalankan sub-agent spesialis (researcher, reasoner, planner, critic) secara paralel.`,
-      `- web-agent: gunakan web_search, web_browse, web_interact (Vercel agent-browser) untuk mencari info live dari web.`
+      `- web-agent: gunakan web_news untuk berita/headline hari ini, web_search untuk pencarian umum, dan web_browse untuk membuka serta membaca isi halaman/artikel secara langsung (jangan pernah berhenti hanya di daftar nama situs).`
     );
 
     if (contextAnalysis) {
