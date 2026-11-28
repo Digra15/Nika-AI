@@ -914,19 +914,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Resolusi Kamera
                   <select
                     className="nika-select"
-                    value={draft.ui.cameraResolution ?? "640x480"}
+                    value={draft.ui.cameraResolution ?? "1280x720"}
                     onChange={(e) =>
                       applyInstant({
                         ...draft,
                         ui: {
                           ...draft.ui,
-                          cameraResolution: e.target.value as "auto" | "640x480" | "1280x720"
+                          cameraResolution: e.target.value as
+                            | "auto"
+                            | "320x240"
+                            | "640x360"
+                            | "640x480"
+                            | "1280x720"
                         }
                       })
                     }
                   >
-                    <option value="640x480">640x480 (Cepat & Ringan)</option>
-                    <option value="1280x720">1280x720 (HD)</option>
+                    <option value="1280x720">1280x720 (720p HD, Rekomendasi)</option>
+                    <option value="640x360">640x360 (Widescreen 16:9, Aman)</option>
+                    <option value="640x480">640x480 (Standard 4:3, 30fps)</option>
+                    <option value="320x240">320x240 (Ultra Ringan, 15fps)</option>
                     <option value="auto">Auto (Default Kamera)</option>
                   </select>
                 </label>

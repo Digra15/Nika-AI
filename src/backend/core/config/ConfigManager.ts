@@ -68,7 +68,7 @@ export class ConfigManager {
         avatarPath: "",
         language: (process.env.NIKA_LANGUAGE as "id" | "en") || "id",
         cameraDeviceId: "default",
-        cameraResolution: "640x480"
+        cameraResolution: "1280x720"
       }
     };
   }

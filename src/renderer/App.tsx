@@ -405,7 +405,7 @@ export default function App() {
       }
       const stream = await visionPipelineRef.current.startCamera({
         deviceId: settingsRef.current?.ui.cameraDeviceId,
-        resolution: settingsRef.current?.ui.cameraResolution ?? "640x480",
+        resolution: settingsRef.current?.ui.cameraResolution ?? "1280x720",
         onFrame: (b64) => {
           void window.nikaAPI?.updateCameraFrame?.(b64);
         },

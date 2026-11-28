@@ -155,7 +155,7 @@ export interface AppSettings {
     avatarPath: string;
     language: "id" | "en";
     cameraDeviceId?: string;
-    cameraResolution?: "auto" | "640x480" | "1280x720";
+    cameraResolution?: "auto" | "320x240" | "640x360" | "640x480" | "1280x720";
   };
 }
 

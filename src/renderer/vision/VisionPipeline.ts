@@ -1,10 +1,24 @@
+export type CameraResolution = "auto" | "320x240" | "640x360" | "640x480" | "1280x720";
+
 export interface CameraStartOptions {
   deviceId?: string;
-  resolution?: "auto" | "640x480" | "1280x720";
+  resolution?: CameraResolution;
   onFrame: (base64Jpeg: string) => void;
   onTrackEnded?: (reason: string) => void;
   onStreamReady?: (stream: MediaStream) => void;
 }
+
+const RESOLUTION_PRESETS: Record<
+  Exclude<CameraResolution, "auto">,
+  { width: number; height: number; fps: number }
+> = {
+  "1280x720": { width: 1280, height: 720, fps: 30 },
+  "640x480": { width: 640, height: 480, fps: 30 },
+  "640x360": { width: 640, height: 360, fps: 30 },
+  "320x240": { width: 320, height: 240, fps: 15 }
+};
+
+const SAFE_FALLBACK_LADDER: CameraResolution[] = ["1280x720", "640x360", "640x480", "320x240"];
 
 export class VisionPipeline {
   private stream: MediaStream | null = null;
@@ -17,22 +31,56 @@ export class VisionPipeline {
 
   private buildConstraints(
     deviceId?: string,
-    resolution: "auto" | "640x480" | "1280x720" = "640x480"
+    resolution: CameraResolution = "1280x720",
+    strict = true
   ): MediaTrackConstraints {
     const base: MediaTrackConstraints = {};
     if (deviceId && deviceId !== "default") {
-      base.deviceId = { ideal: deviceId };
+      base.deviceId = strict ? { exact: deviceId } : { ideal: deviceId };
     }
-    if (resolution === "640x480") {
-      base.width = { ideal: 640 };
-      base.height = { ideal: 480 };
-      base.frameRate = { ideal: 24, max: 30 };
-    } else if (resolution === "1280x720") {
-      base.width = { ideal: 1280 };
-      base.height = { ideal: 720 };
-      base.frameRate = { ideal: 24, max: 30 };
+    if (resolution !== "auto") {
+      const preset = RESOLUTION_PRESETS[resolution];
+      base.width = strict ? { exact: preset.width } : { ideal: preset.width };
+      base.height = strict ? { exact: preset.height } : { ideal: preset.height };
+      base.frameRate = { ideal: preset.fps, max: 30 };
     }
     return base;
+  }
+
+  private async openStreamWithFallback(
+    deviceId?: string,
+    requested: CameraResolution = "1280x720"
+  ): Promise<{ stream: MediaStream; resolution: CameraResolution }> {
+    const candidates: CameraResolution[] =
+      requested === "auto"
+        ? ["1280x720", "640x360", "640x480", "320x240", "auto"]
+        : [requested, ...SAFE_FALLBACK_LADDER.filter((r) => r !== requested), "auto"];
+
+    let lastErr: unknown;
+    for (const res of candidates) {
+      if (res === "auto") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          return { stream, resolution: "auto" };
+        } catch (err) {
+          lastErr = err;
+          continue;
+        }
+      }
+      for (const strict of [true, false]) {
+        try {
+          const constraints = this.buildConstraints(deviceId, res, strict);
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: constraints,
+            audio: false
+          });
+          return { stream, resolution: res };
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "Webcam gagal dibuka"));
   }
 
   async startCamera(opts: CameraStartOptions): Promise<MediaStream> {
@@ -43,7 +91,7 @@ export class VisionPipeline {
       return this.startingPromise;
     }
 
-    this.startingPromise = this.startCameraInternal(opts).finally(() => {
+    this.startingPromise = this.startCameraInternal(opts, 0).finally(() => {
       this.startingPromise = null;
     });
     return this.startingPromise;
@@ -51,23 +99,13 @@ export class VisionPipeline {
 
   private async startCameraInternal(
     opts: CameraStartOptions,
-    allowBareRetry = true
+    retryStep: number
   ): Promise<MediaStream> {
-    let stream: MediaStream;
-    let usedBareConstraints = false;
-    try {
-      const constraints = this.buildConstraints(opts.deviceId, opts.resolution);
-      const hasConstraints = Object.keys(constraints).length > 0;
-      usedBareConstraints = !hasConstraints;
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: hasConstraints ? constraints : true,
-        audio: false
-      });
-    } catch {
-      // Fallback to bare { video: true } if webcam rejects resolution, fps, or deviceId constraints
-      usedBareConstraints = true;
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    }
+    const requestedRes = opts.resolution ?? "1280x720";
+    const { stream, resolution: activeRes } = await this.openStreamWithFallback(
+      opts.deviceId,
+      requestedRes
+    );
 
     const startedAt = Date.now();
     this.stream = stream;
@@ -76,16 +114,20 @@ export class VisionPipeline {
       track.onended = () => {
         const elapsed = Date.now() - startedAt;
         this.stopCamera();
-        if (allowBareRetry && !usedBareConstraints && elapsed < 2500) {
-          // Some Windows webcams accept constraints in getUserMedia then immediately drop the track; retry bare
-          void this.startCameraInternal({ ...opts, resolution: "auto", deviceId: "default" }, false)
-            .catch((err) => {
+        const nextFallback = SAFE_FALLBACK_LADDER.find((r) => r !== activeRes);
+        if (retryStep < SAFE_FALLBACK_LADDER.length && elapsed < 3500 && nextFallback) {
+          const fallbackRes = SAFE_FALLBACK_LADDER[retryStep] ?? nextFallback;
+          void this.startCameraInternal({ ...opts, resolution: fallbackRes }, retryStep + 1).catch(
+            (err) => {
               const msg = err instanceof Error ? err.message : String(err);
               opts.onTrackEnded?.(`Webcam langsung mati (${msg}).`);
-            });
+            }
+          );
           return;
         }
-        opts.onTrackEnded?.("Webcam terputus atau dipakai aplikasi lain.");
+        opts.onTrackEnded?.(
+          `Webcam terputus (resolusi ${activeRes}). Coba pilih 320x240 atau 640x360 di Pengaturan > Tampilan.`
+        );
       };
     }
 
