@@ -3,7 +3,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { DesktopControlService } from "../backend/agent-skills/DesktopControlService.js";
+import { GameCompanionService } from "../backend/agent-skills/GameCompanionService.js";
 import { registerDesktopTools } from "../backend/agent-skills/registerDesktopTools.js";
+import { registerGameTools } from "../backend/agent-skills/registerGameTools.js";
 import { NikaBrain } from "../backend/ai/brain/NikaBrain.js";
 import { registerBrainTools } from "../backend/ai/brain/registerBrainTools.js";
 import { OpenAICompatibleProvider } from "../backend/ai/providers/OpenAICompatibleProvider.js";
@@ -102,6 +104,7 @@ const configManager = new ConfigManager(app.getPath("userData"));
 const memoryManager = new MemoryManager(app.getPath("userData"));
 const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
 const desktopControl = new DesktopControlService(PROJECT_ROOT);
+const gameCompanion = new GameCompanionService();
 const sharedProvider = new OpenAICompatibleProvider();
 const toolRegistry = new ToolRegistry();
 const nikaBrain = new NikaBrain(sharedProvider, toolRegistry);
@@ -192,6 +195,36 @@ registerDesktopTools({
         ? { visualAnalysis }
         : { note: "Frame kamera tersedia tetapi model AI aktif tidak merespons analisis gambar." })
     };
+  }
+});
+registerGameTools({
+  registry: toolRegistry,
+  gameService: gameCompanion,
+  memoryManager,
+  getAIConfig: () => configManager.getSettings().ai,
+  captureScreenSummary: async (question, aiConfig) => {
+    const winInfo = await desktopControl.computerAction({ action: "active_window" });
+    const captured = await capturePrimaryScreenBase64();
+    if (!captured) return { ...winInfo, screenshotSaved: false };
+    const visualAnalysis = await analyzeImageWithVision(
+      captured.base64,
+      "image/png",
+      question || "Analisis tampilan game di layar ini.",
+      aiConfig
+    );
+    return {
+      ...winInfo,
+      screenshotSaved: true,
+      screenSize: captured.size,
+      ...(visualAnalysis ? { visualAnalysis } : {})
+    };
+  },
+  onReaction: (reaction) => {
+    mainWindow?.webContents.send("nika:chat-stream", {
+      requestId: "",
+      type: "gesture",
+      gesture: reaction.gesture
+    });
   }
 });
 const aiClient = new NineRouterClient();
