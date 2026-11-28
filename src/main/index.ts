@@ -28,11 +28,12 @@ const PROJECT_ROOT = path.resolve(__dirname, "../..");
 
 const logger = new Logger("Main");
 if (process.platform === "win32") {
-  // Prevent Windows MediaFoundation D3D11 zero-copy video capture utility process crashes on Electron/Chromium
+  // Prevent Windows MediaFoundation / ZeroCopy / out-of-process VideoCaptureService crashes on Electron/Chromium
   app.commandLine.appendSwitch(
     "disable-features",
-    "MediaFoundationD3D11VideoCapture,MediaFoundationVideoCapture"
+    "MediaFoundationD3D11VideoCapture,MediaFoundationVideoCapture,ZeroCopyVideoCapture"
   );
+  app.commandLine.appendSwitch("enable-features", "RunVideoCaptureServiceInBrowserProcess");
 }
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;

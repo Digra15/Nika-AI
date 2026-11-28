@@ -409,6 +409,17 @@ export default function App() {
         onFrame: (b64) => {
           void window.nikaAPI?.updateCameraFrame?.(b64);
         },
+        onStreamReady: (restartedStream) => {
+          cameraStreamRef.current = restartedStream;
+          setCameraActive(true);
+          setCameraError(null);
+          window.setTimeout(() => {
+            if (cameraPreviewRef.current && cameraStreamRef.current) {
+              cameraPreviewRef.current.srcObject = cameraStreamRef.current;
+              void cameraPreviewRef.current.play().catch(() => {});
+            }
+          }, 60);
+        },
         onTrackEnded: (reason) => {
           cameraStreamRef.current = null;
           setCameraActive(false);
@@ -752,6 +763,31 @@ export default function App() {
               {liveScreenActive ? "Screen Live" : "Screen"}
             </button>
           </div>
+
+          {cameraError && (
+            <div
+              onClick={() => setCameraError(null)}
+              title="Klik untuk tutup"
+              style={{
+                position: "absolute",
+                bottom: 72,
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "rgba(185, 28, 28, 0.92)",
+                color: "#fff",
+                padding: "6px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                zIndex: 20,
+                cursor: "pointer",
+                maxWidth: 420,
+                textAlign: "center",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.45)"
+              }}
+            >
+              Kamera mati: {cameraError}
+            </div>
+          )}
 
           {cameraActive && (
             <video

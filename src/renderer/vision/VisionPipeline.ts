@@ -3,6 +3,7 @@ export interface CameraStartOptions {
   resolution?: "auto" | "640x480" | "1280x720";
   onFrame: (base64Jpeg: string) => void;
   onTrackEnded?: (reason: string) => void;
+  onStreamReady?: (stream: MediaStream) => void;
 }
 
 export class VisionPipeline {
@@ -48,24 +49,42 @@ export class VisionPipeline {
     return this.startingPromise;
   }
 
-  private async startCameraInternal(opts: CameraStartOptions): Promise<MediaStream> {
+  private async startCameraInternal(
+    opts: CameraStartOptions,
+    allowBareRetry = true
+  ): Promise<MediaStream> {
     let stream: MediaStream;
+    let usedBareConstraints = false;
     try {
       const constraints = this.buildConstraints(opts.deviceId, opts.resolution);
+      const hasConstraints = Object.keys(constraints).length > 0;
+      usedBareConstraints = !hasConstraints;
       stream = await navigator.mediaDevices.getUserMedia({
-        video: Object.keys(constraints).length > 0 ? constraints : true,
+        video: hasConstraints ? constraints : true,
         audio: false
       });
     } catch {
       // Fallback to bare { video: true } if webcam rejects resolution, fps, or deviceId constraints
+      usedBareConstraints = true;
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     }
 
+    const startedAt = Date.now();
     this.stream = stream;
     const track = stream.getVideoTracks()[0];
     if (track) {
       track.onended = () => {
+        const elapsed = Date.now() - startedAt;
         this.stopCamera();
+        if (allowBareRetry && !usedBareConstraints && elapsed < 2500) {
+          // Some Windows webcams accept constraints in getUserMedia then immediately drop the track; retry bare
+          void this.startCameraInternal({ ...opts, resolution: "auto", deviceId: "default" }, false)
+            .catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              opts.onTrackEnded?.(`Webcam langsung mati (${msg}).`);
+            });
+          return;
+        }
         opts.onTrackEnded?.("Webcam terputus atau dipakai aplikasi lain.");
       };
     }
@@ -145,6 +164,7 @@ export class VisionPipeline {
 
     window.setTimeout(() => captureIfChanged(true), 300);
     this.timer = window.setInterval(() => captureIfChanged(false), 2500);
+    opts.onStreamReady?.(stream);
     return stream;
   }
 
