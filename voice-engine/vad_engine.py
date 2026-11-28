@@ -24,6 +24,7 @@ class SileroVADEngine:
     def __init__(self, threshold: float = 0.45, min_silence_ms: int = 450) -> None:
         self.threshold = threshold
         self.min_silence_ms = min_silence_ms
+        self._echo_guard_active = False
         self._model = None
         self._ready = False
 
@@ -48,6 +49,9 @@ class SileroVADEngine:
             self.threshold = float(threshold)
         if min_silence_ms is not None:
             self.min_silence_ms = int(min_silence_ms)
+
+    def set_playback_active(self, active: bool) -> None:
+        self._echo_guard_active = bool(active)
 
     def reset(self) -> None:
         self._in_speech = False
@@ -85,7 +89,10 @@ class SileroVADEngine:
                 with torch.no_grad():
                     tensor = torch.from_numpy(frame).unsqueeze(0)
                     prob = float(self._model(tensor, self.SAMPLE_RATE).item())
-            is_speech = prob >= self.threshold
+            effective_threshold = (
+                min(0.85, self.threshold + 0.18) if self._echo_guard_active else self.threshold
+            )
+            is_speech = prob >= effective_threshold
 
             if not self._in_speech:
                 self._pre_roll.append(frame)

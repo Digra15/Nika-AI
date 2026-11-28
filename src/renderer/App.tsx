@@ -537,6 +537,7 @@ export default function App() {
                     breathAudioEnabled: true,
                     breathVolume: 0.1,
                     bargeInEnabled: true,
+                    ownerOnlyMode: false,
                     vadThreshold: 0.45,
                     vadMinSilenceMs: 420,
                     listeningMode: "auto",

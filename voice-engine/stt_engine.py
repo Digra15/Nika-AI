@@ -96,15 +96,29 @@ class FasterWhisperSTTEngine:
             condition_on_previous_text=False,
         )
 
+        hallucinations = {
+            "terima kasih telah menonton",
+            "terima kasih sudah menonton",
+            "subtitle oleh",
+            "subscribe",
+            "amara.org",
+            "thank you for watching",
+            "mbc",
+            "sbs",
+        }
         kept_texts: list[str] = []
         for seg in segments:
             no_speech = getattr(seg, "no_speech_prob", 0.0) or 0.0
             avg_logprob = getattr(seg, "avg_logprob", 0.0) or 0.0
-            if no_speech > 0.7 or avg_logprob < -1.2:
+            if no_speech > 0.6 or avg_logprob < -1.05:
                 continue
             cleaned = seg.text.strip()
-            if cleaned:
-                kept_texts.append(cleaned)
+            lower_c = cleaned.lower().strip(".,!? ")
+            if not lower_c or any(h in lower_c for h in hallucinations):
+                continue
+            if lower_c == "terima kasih" and (rms < 0.015 or no_speech > 0.45):
+                continue
+            kept_texts.append(cleaned)
 
         text = " ".join(kept_texts).strip()
         detected_lang = getattr(info, "language", None) or (lang_arg or "id")

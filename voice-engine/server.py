@@ -257,6 +257,8 @@ async def audio_stream(websocket: WebSocket):
                         if use_streaming_stt and sherpa_stream is not None:
                             stt_engine.reset_stream(sherpa_stream)
                             last_stream_text = ""
+                    elif msg_type == "playback_state":
+                        vad_engine.set_playback_active(bool(payload.get("playing", False)))
                 except Exception:
                     pass
                 continue

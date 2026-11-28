@@ -38,6 +38,8 @@ export class AudioPipeline {
   private listeningMode: ListeningMode = "auto";
   private wakeWord = "nika";
   private bargeInEnabled = true;
+  private ownerOnlyMode = false;
+  private wakeWindowUntil = 0;
   private pttPressed = false;
   private reconnectTimer: number | null = null;
   private bargeInTimer: number | null = null;
@@ -51,6 +53,7 @@ export class AudioPipeline {
     this.listeningMode = config.listeningMode;
     this.wakeWord = config.wakeWord.toLowerCase().trim();
     this.bargeInEnabled = config.bargeInEnabled ?? true;
+    this.ownerOnlyMode = config.ownerOnlyMode ?? false;
     this.ensurePlaybackContext();
     this.connectWebSocket(config);
     await this.startMicrophone(config.inputDeviceId);
@@ -60,6 +63,7 @@ export class AudioPipeline {
     this.listeningMode = config.listeningMode;
     this.wakeWord = config.wakeWord.toLowerCase().trim();
     this.bargeInEnabled = config.bargeInEnabled ?? true;
+    this.ownerOnlyMode = config.ownerOnlyMode ?? false;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
@@ -205,12 +209,27 @@ export class AudioPipeline {
         } else if (msg.type === "final_transcript" && msg.text) {
           const clean = msg.text.trim();
           if (!clean) return;
+          const lowerClean = clean.toLowerCase();
+          const hasWakeWord = Boolean(this.wakeWord && lowerClean.includes(this.wakeWord));
+
           if (
-            this.listeningMode === "wake-word" &&
-            this.wakeWord &&
-            !clean.toLowerCase().includes(this.wakeWord)
+            this.ownerOnlyMode &&
+            msg.speaker &&
+            msg.speaker.id !== "spk-1" &&
+            !hasWakeWord
           ) {
             return;
+          }
+
+          if (this.listeningMode === "wake-word" && this.wakeWord) {
+            const nowMs = Date.now();
+            if (hasWakeWord) {
+              this.wakeWindowUntil = nowMs + 20_000;
+            } else if (nowMs <= this.wakeWindowUntil) {
+              this.wakeWindowUntil = nowMs + 20_000;
+            } else {
+              return;
+            }
           }
           this.callbacks.onFinalTranscript({
             text: clean,
@@ -359,16 +378,27 @@ export class AudioPipeline {
     }
   }
 
+  private setSpeakingState(speaking: boolean): void {
+    if (this.isPlaying !== speaking) {
+      this.isPlaying = speaking;
+      if (!speaking && this.listeningMode === "wake-word" && this.wakeWindowUntil > 0) {
+        this.wakeWindowUntil = Date.now() + 20_000;
+      }
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "playback_state", playing: speaking }));
+      }
+      this.callbacks.onSpeakingChange(speaking);
+    }
+  }
+
   private playNext(): void {
     const next = this.audioQueue.shift();
     if (!next || !this.playbackContext || !this.analyser) {
-      this.isPlaying = false;
-      this.callbacks.onSpeakingChange(false);
+      this.setSpeakingState(false);
       return;
     }
 
-    this.isPlaying = true;
-    this.callbacks.onSpeakingChange(true);
+    this.setSpeakingState(true);
 
     const source = this.playbackContext.createBufferSource();
     source.buffer = next;
@@ -469,15 +499,13 @@ export class AudioPipeline {
       sentenceEndTime = this.nextScheduleTime;
 
       this.scheduledSources.add(source);
-      this.isPlaying = true;
-      this.callbacks.onSpeakingChange(true);
+      this.setSpeakingState(true);
 
       source.onended = () => {
         this.scheduledSources.delete(source);
         if (this.scheduledSources.size === 0 && !this.activeSource && this.audioQueue.length === 0) {
-          this.isPlaying = false;
           this.nextScheduleTime = 0;
-          this.callbacks.onSpeakingChange(false);
+          this.setSpeakingState(false);
         }
       };
 
@@ -562,8 +590,7 @@ export class AudioPipeline {
       }
       this.activeSource = null;
     }
-    this.isPlaying = false;
-    this.callbacks.onSpeakingChange(false);
+    this.setSpeakingState(false);
   }
 
   getMouthMetrics(): MouthMetrics {

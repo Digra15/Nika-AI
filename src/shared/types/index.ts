@@ -85,6 +85,7 @@ export interface VoiceConfig {
   breathAudioEnabled: boolean;
   breathVolume: number;
   bargeInEnabled: boolean;
+  ownerOnlyMode: boolean;
   vadThreshold: number;
   vadMinSilenceMs: number;
   listeningMode: ListeningMode;

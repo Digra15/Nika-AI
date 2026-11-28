@@ -688,6 +688,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <option value="false">Nonaktif</option>
                     </select>
                   </label>
+                  <label className="nika-field">
+                    Filter Pembicara (Voice Privacy)
+                    <select
+                      className="nika-select"
+                      value={(draft.voice.ownerOnlyMode ?? false) ? "true" : "false"}
+                      onChange={(e) =>
+                        applyInstant({
+                          ...draft,
+                          voice: { ...draft.voice, ownerOnlyMode: e.target.value === "true" }
+                        })
+                      }
+                    >
+                      <option value="false">Semua Orang</option>
+                      <option value="true">Hanya Pemilik (Speaker 1)</option>
+                    </select>
+                  </label>
                 </div>
 
                 <div className="nika-card">

@@ -55,6 +55,7 @@ export class ConfigManager {
         breathAudioEnabled: process.env.NIKA_BREATH_AUDIO !== "false",
         breathVolume: Number(process.env.NIKA_BREATH_VOLUME ?? 0.1),
         bargeInEnabled: process.env.NIKA_BARGE_IN !== "false",
+        ownerOnlyMode: process.env.NIKA_OWNER_ONLY === "true",
         vadThreshold: Number(process.env.NIKA_VAD_THRESHOLD ?? 0.45),
         vadMinSilenceMs: Number(process.env.NIKA_VAD_MIN_SILENCE_MS ?? 420),
         listeningMode: "auto",
