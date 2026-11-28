@@ -741,6 +741,8 @@ export default function App() {
               emotion={emotion}
               mood={mind.mood}
               gestureSignal={gestureSignal}
+              activeTool={activeTool}
+              cameraActive={cameraActive}
               audioPipeline={audioPipelineRef.current}
             />
           )}

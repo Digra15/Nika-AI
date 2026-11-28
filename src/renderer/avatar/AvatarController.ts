@@ -7,7 +7,9 @@ export type AvatarGestureType =
   | "tilt"
   | "cheer"
   | "thinking_pose"
-  | "bow";
+  | "bow"
+  | "browsing_holo"
+  | "look_camera";
 
 export interface AvatarFrameTargets {
   bodyY: number;
@@ -80,6 +82,14 @@ export class GestureController {
     this.expiresAt = performance.now() + durationMs;
   }
 
+  getActiveGesture(nowMs: number): AvatarGestureType {
+    if (this.activeGesture === "none" || nowMs > this.expiresAt) {
+      this.activeGesture = "none";
+      return "none";
+    }
+    return this.activeGesture;
+  }
+
   getOffsets(nowMs: number, t: number): {
     headY: number;
     headRot: number;
@@ -132,6 +142,22 @@ export class GestureController {
           bodyY: 6,
           leftArmRot: 0.04,
           rightArmRot: -0.04
+        };
+      case "browsing_holo":
+        return {
+          headY: 5,
+          headRot: -0.04 + Math.sin(t * 2.4) * 0.015,
+          bodyY: 2,
+          leftArmRot: -0.24 + Math.sin(t * 10) * 0.04,
+          rightArmRot: 0.24 - Math.cos(t * 10) * 0.04
+        };
+      case "look_camera":
+        return {
+          headY: -3,
+          headRot: 0.04 + Math.sin(t * 2.2) * 0.02,
+          bodyY: -2,
+          leftArmRot: 0.05,
+          rightArmRot: -0.05
         };
       default:
         return { headY: 0, headRot: 0, bodyY: 0, leftArmRot: 0, rightArmRot: 0 };
@@ -214,11 +240,15 @@ export class EmotionAnimationController {
     }
 
     const g = gesture.getOffsets(nowMs, t);
+    const activeG = gesture.getActiveGesture(nowMs);
     headY += g.headY;
     headRot += g.headRot;
     bodyY += g.bodyY;
     leftArmRot += g.leftArmRot;
     rightArmRot += g.rightArmRot;
+
+    const baseEyeX = Math.max(-1, Math.min(1, pointer.x)) * 5.5;
+    const baseEyeY = Math.max(-1, Math.min(1, pointer.y)) * 3.5;
 
     return {
       bodyY,
@@ -231,8 +261,18 @@ export class EmotionAnimationController {
       hairWindX,
       leftArmRot,
       rightArmRot,
-      eyeLookX: Math.max(-1, Math.min(1, pointer.x)) * 5.5,
-      eyeLookY: Math.max(-1, Math.min(1, pointer.y)) * 3.5,
+      eyeLookX:
+        activeG === "browsing_holo"
+          ? Math.sin(t * 3.4) * 3.2
+          : activeG === "look_camera"
+            ? -2.2 + Math.sin(t * 1.5) * 0.5
+            : baseEyeX,
+      eyeLookY:
+        activeG === "browsing_holo"
+          ? 2.8 + Math.sin(t * 2.2) * 0.6
+          : activeG === "look_camera"
+            ? 0.8
+            : baseEyeY,
       browY:
         emotion === "surprised"
           ? -5

@@ -15,6 +15,8 @@ interface AvatarSceneProps {
   emotion: EmotionType;
   mood?: MoodType;
   gestureSignal?: { type: AvatarGestureType; seq: number } | null;
+  activeTool?: string | null;
+  cameraActive?: boolean;
   audioPipeline: AudioPipeline;
 }
 
@@ -283,6 +285,8 @@ export const AvatarScene: React.FC<AvatarSceneProps> = (props) => {
         emotion={props.emotion}
         mood={props.mood}
         gestureSignal={props.gestureSignal}
+        activeTool={props.activeTool}
+        cameraActive={props.cameraActive}
         audioPipeline={props.audioPipeline}
       />
     );

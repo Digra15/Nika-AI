@@ -21,7 +21,141 @@ interface Nika2DAvatarProps {
   emotion: EmotionType;
   mood?: MoodType;
   gestureSignal?: { type: AvatarGestureType; seq: number } | null;
+  activeTool?: string | null;
+  cameraActive?: boolean;
   audioPipeline: AudioPipeline;
+}
+
+const BROWSING_TOOLS = new Set([
+  "web_search",
+  "web_news",
+  "web_browse",
+  "web_research",
+  "playwright_automate",
+  "fact_check",
+  "code_assist"
+]);
+
+function isBrowsingTool(tool?: string | null): boolean {
+  return Boolean(tool && BROWSING_TOOLS.has(tool));
+}
+
+function drawHologramScreen(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  toolName: string
+): void {
+  const cx = w * 0.5;
+  const topY = h * 0.54 + Math.sin(t * 2.4) * 4;
+  const boxW = w * 0.48;
+  const boxH = h * 0.25;
+  const skew = boxW * 0.06;
+
+  ctx.save();
+  // Projection beam from bottom
+  const beamGrad = ctx.createLinearGradient(cx, topY + boxH + 45, cx, topY);
+  beamGrad.addColorStop(0, "rgba(34, 211, 238, 0.22)");
+  beamGrad.addColorStop(1, "rgba(56, 189, 248, 0.02)");
+  ctx.fillStyle = beamGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx - boxW * 0.18, topY + boxH + 42);
+  ctx.lineTo(cx + boxW * 0.18, topY + boxH + 42);
+  ctx.lineTo(cx + boxW * 0.5, topY + boxH);
+  ctx.lineTo(cx - boxW * 0.5, topY + boxH);
+  ctx.closePath();
+  ctx.fill();
+
+  // Translucent trapezoid hologram panel
+  const panelGrad = ctx.createLinearGradient(cx - boxW * 0.5, topY, cx + boxW * 0.5, topY + boxH);
+  panelGrad.addColorStop(0, "rgba(14, 165, 233, 0.22)");
+  panelGrad.addColorStop(0.5, "rgba(34, 211, 238, 0.14)");
+  panelGrad.addColorStop(1, "rgba(168, 85, 247, 0.22)");
+  ctx.fillStyle = panelGrad;
+  ctx.strokeStyle = "rgba(56, 239, 255, 0.88)";
+  ctx.lineWidth = 2.4;
+  ctx.shadowColor = "rgba(34, 211, 238, 0.75)";
+  ctx.shadowBlur = 18;
+
+  ctx.beginPath();
+  ctx.moveTo(cx - boxW * 0.5 + skew, topY);
+  ctx.lineTo(cx + boxW * 0.5 - skew, topY);
+  ctx.lineTo(cx + boxW * 0.5, topY + boxH);
+  ctx.lineTo(cx - boxW * 0.5, topY + boxH);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Top browser address bar
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "rgba(34, 211, 238, 0.35)";
+  ctx.fillRect(cx - boxW * 0.39, topY + 12, boxW * 0.78, 12);
+
+  // Pulsing header label
+  ctx.fillStyle = "rgba(224, 242, 254, 0.92)";
+  ctx.font = "bold 12px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(`HOLO-WEB // ${toolName.toUpperCase()}`, cx, topY + 22);
+
+  // Animated scrolling content bars
+  for (let i = 0; i < 5; i++) {
+    const barY = topY + 36 + i * 18;
+    const wave = 0.45 + 0.5 * Math.abs(Math.sin(t * 3.5 + i * 0.9));
+    const barW = boxW * 0.72 * wave;
+    ctx.fillStyle = i % 2 === 0 ? "rgba(56, 239, 255, 0.5)" : "rgba(192, 132, 252, 0.5)";
+    ctx.fillRect(cx - boxW * 0.36, barY, barW, 8);
+  }
+
+  // Moving horizontal scanline
+  const scanOffset = ((t * 95) % (boxH - 16)) + topY + 8;
+  ctx.strokeStyle = "rgba(186, 230, 253, 0.75)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - boxW * 0.44, scanOffset);
+  ctx.lineTo(cx + boxW * 0.44, scanOffset);
+  ctx.stroke();
+
+  // Floating holographic data particles
+  for (let p = 0; p < 6; p++) {
+    const px = cx + Math.sin(t * 2.1 + p * 1.4) * (boxW * 0.46);
+    const py = topY + boxH - ((t * 42 + p * 26) % (boxH + 18));
+    ctx.fillStyle = p % 2 === 0 ? "rgba(103, 232, 249, 0.85)" : "rgba(216, 180, 254, 0.85)";
+    ctx.beginPath();
+    ctx.arc(px, py, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCameraLookOverlay(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  isInspecting: boolean
+): void {
+  const pulse = 0.55 + 0.45 * Math.sin(t * (isInspecting ? 6 : 2.5));
+  const rx = w * 0.16;
+  const ry = h * 0.18;
+  const size = 26;
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(34, 211, 238, ${0.45 + pulse * 0.4})`;
+  ctx.lineWidth = 2.2;
+  ctx.shadowColor = "rgba(34, 211, 238, 0.65)";
+  ctx.shadowBlur = 10;
+
+  // Target reticle near camera gaze direction
+  ctx.beginPath();
+  ctx.arc(rx, ry, size * (0.85 + pulse * 0.12), 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = `rgba(34, 211, 238, ${0.7 + pulse * 0.3})`;
+  ctx.font = "bold 11px monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(isInspecting ? "CAM // SCANNING" : "CAM // LIVE", rx + size + 10, ry + 4);
+  ctx.restore();
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -199,20 +333,28 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
   emotion,
   mood,
   gestureSignal,
+  activeTool,
+  cameraActive,
   audioPipeline
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerRef = useRef({ x: 0, y: 0 });
   const spriteCtrlRef = useRef(new SpriteController());
-  const stateRef = useRef({ avatarState, emotion, mood });
-  stateRef.current = { avatarState, emotion, mood };
+  const stateRef = useRef({ avatarState, emotion, mood, activeTool, cameraActive });
+  stateRef.current = { avatarState, emotion, mood, activeTool, cameraActive };
 
   useEffect(() => {
     if (gestureSignal && gestureSignal.type !== "none") {
       spriteCtrlRef.current.gesture.trigger(gestureSignal.type);
     }
   }, [gestureSignal]);
+
+  useEffect(() => {
+    if (cameraActive || activeTool === "camera_see") {
+      spriteCtrlRef.current.gesture.trigger("look_camera", activeTool === "camera_see" ? 2600 : 1800);
+    }
+  }, [cameraActive, activeTool]);
 
   const rigRef = useRef<{
     ready: boolean;
@@ -652,6 +794,13 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       }
       anim.blink = targetBlink;
 
+      const { activeTool: curTool, cameraActive: camOn } = stateRef.current;
+      if (isBrowsingTool(curTool)) {
+        ctrl.gesture.trigger("browsing_holo", 600);
+      } else if (curTool === "camera_see") {
+        ctrl.gesture.trigger("look_camera", 600);
+      }
+
       const targets = ctrl.emotionAnim.computeTargets({
         t: anim.t,
         emotion: emo,
@@ -831,6 +980,17 @@ export const Nika2DAvatar: React.FC<Nika2DAvatarProps> = ({
       drawHeadAccents(ctx, rig.w, rig.h, anim.t, emo, act);
 
       ctx.restore();
+
+      // 4. Hologram Computer Screen when browsing / researching
+      if (isBrowsingTool(curTool) && curTool) {
+        drawHologramScreen(ctx, rig.w, rig.h, anim.t, curTool);
+      }
+
+      // 5. Camera-looking HUD indicator when webcam is active or camera_see runs
+      if (camOn || curTool === "camera_see") {
+        drawCameraLookOverlay(ctx, rig.w, rig.h, anim.t, curTool === "camera_see");
+      }
+
       rafId = requestAnimationFrame(renderFrame);
     };
 
