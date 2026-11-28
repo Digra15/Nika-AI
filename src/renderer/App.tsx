@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Camera,
+  CameraOff,
   Mic,
   MicOff,
+  Monitor,
   Pin,
   Send,
   Settings,
@@ -25,6 +28,7 @@ import type { AvatarGestureType } from "./avatar/AvatarController";
 import { AvatarScene } from "./avatar/AvatarScene";
 import { NikaBootScreen } from "./components/NikaBootScreen";
 import { SettingsModal } from "./components/SettingsModal";
+import { VisionPipeline } from "./vision/VisionPipeline";
 import { getDefaultPersonaConfig } from "../shared/personaPresets";
 import type { SystemReadiness } from "../shared/types/index";
 
@@ -76,6 +80,11 @@ export default function App() {
   const [micActive, setMicActive] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [liveScreenActive, setLiveScreenActive] = useState(false);
+  const visionPipelineRef = useRef<VisionPipeline | null>(null);
+  const cameraPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const [booting, setBooting] = useState(() => Boolean(typeof window !== "undefined" && window.nikaAPI));
   const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
   const [allowBootSkip, setAllowBootSkip] = useState(false);
@@ -317,6 +326,7 @@ export default function App() {
       if (pollTimer !== null) clearTimeout(pollTimer);
       unsubStream();
       audioPipelineRef.current?.dispose();
+      visionPipelineRef.current?.dispose();
     };
   }, [enqueueSentenceTTS]);
 
@@ -374,6 +384,40 @@ export default function App() {
     if (vadActive) return "listening";
     return "idle";
   }, [isSpeaking, isGenerating, vadActive, emotion]);
+
+  const toggleCamera = async () => {
+    if (cameraActive) {
+      visionPipelineRef.current?.stopCamera();
+      cameraStreamRef.current = null;
+      setCameraActive(false);
+      await window.nikaAPI?.setLiveVision?.({ camera: false });
+      return;
+    }
+    try {
+      if (!visionPipelineRef.current) {
+        visionPipelineRef.current = new VisionPipeline();
+      }
+      const stream = await visionPipelineRef.current.startCamera((b64) => {
+        void window.nikaAPI?.updateCameraFrame?.(b64);
+      });
+      cameraStreamRef.current = stream;
+      setCameraActive(true);
+      await window.nikaAPI?.setLiveVision?.({ camera: true });
+      window.setTimeout(() => {
+        if (cameraPreviewRef.current && cameraStreamRef.current) {
+          cameraPreviewRef.current.srcObject = cameraStreamRef.current;
+        }
+      }, 60);
+    } catch (err) {
+      console.error("Camera error:", err);
+    }
+  };
+
+  const toggleLiveScreen = async () => {
+    const next = !liveScreenActive;
+    setLiveScreenActive(next);
+    await window.nikaAPI?.setLiveVision?.({ screen: next });
+  };
 
   const handleModelSwitch = async (modelId: string) => {
     if (!settings) return;
@@ -667,7 +711,47 @@ export default function App() {
                 <Square size={14} /> Stop / Interrupt
               </button>
             )}
+
+            <button
+              className={`nika-btn ${cameraActive ? "active" : ""}`}
+              onClick={() => void toggleCamera()}
+              title="Aktifkan/Matikan Kamera (Live Vision)"
+            >
+              {cameraActive ? <Camera size={14} /> : <CameraOff size={14} />}
+              {cameraActive ? "Cam On" : "Cam"}
+            </button>
+
+            <button
+              className={`nika-btn ${liveScreenActive ? "active" : ""}`}
+              onClick={() => void toggleLiveScreen()}
+              title="Pantau Layar Secara Real-Time"
+            >
+              <Monitor size={14} />
+              {liveScreenActive ? "Screen Live" : "Screen"}
+            </button>
           </div>
+
+          {cameraActive && (
+            <video
+              ref={cameraPreviewRef}
+              autoPlay
+              muted
+              playsInline
+              style={{
+                position: "absolute",
+                bottom: 18,
+                left: 18,
+                width: 128,
+                height: 96,
+                objectFit: "cover",
+                borderRadius: 10,
+                border: "1px solid rgba(56, 189, 248, 0.45)",
+                boxShadow: "0 8px 24px rgba(0, 0, 0, 0.5)",
+                zIndex: 12,
+                transform: "scaleX(-1)"
+              }}
+            />
+          )}
         </section>
 
         <aside className="nika-sidebar">

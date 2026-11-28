@@ -8,9 +8,10 @@ export function registerDesktopTools(params: {
   desktop: DesktopControlService;
   browserService: AgentBrowserService;
   captureScreenSummary: (question?: string, aiConfig?: AIConfig) => Promise<Record<string, unknown>>;
+  captureCameraSummary: (question?: string, aiConfig?: AIConfig) => Promise<Record<string, unknown>>;
   getAIConfig: () => AIConfig;
 }): void {
-  const { registry, desktop, browserService, captureScreenSummary, getAIConfig } = params;
+  const { registry, desktop, browserService, captureScreenSummary, captureCameraSummary, getAIConfig } = params;
 
   /** 1. computer-use */
   registry.register(
@@ -227,6 +228,32 @@ export function registerDesktopTools(params: {
     },
     async (args) =>
       captureScreenSummary(
+        args.question ? String(args.question) : undefined,
+        getAIConfig()
+      )
+  );
+
+  /** 6. camera-vision (real-time webcam) */
+  registry.register(
+    {
+      type: "function",
+      function: {
+        name: "camera_see",
+        description:
+          "Melihat dunia luar / pengguna secara langsung melalui webcam yang aktif dan menjelaskan apa yang terlihat di depan kamera.",
+        parameters: {
+          type: "object",
+          properties: {
+            question: {
+              type: "string",
+              description: "Pertanyaan spesifik tentang apa yang terlihat di kamera."
+            }
+          }
+        }
+      }
+    },
+    async (args) =>
+      captureCameraSummary(
         args.question ? String(args.question) : undefined,
         getAIConfig()
       )

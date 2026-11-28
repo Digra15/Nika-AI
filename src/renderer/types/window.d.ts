@@ -69,6 +69,8 @@ export interface NikaAPI {
     base64: string;
   } | null>;
   toggleAlwaysOnTop: () => Promise<boolean>;
+  updateCameraFrame: (base64: string | null) => Promise<boolean>;
+  setLiveVision: (state: { camera?: boolean; screen?: boolean }) => Promise<boolean>;
   onChatStream: (cb: (event: ChatStreamEvent) => void) => () => void;
 }
 

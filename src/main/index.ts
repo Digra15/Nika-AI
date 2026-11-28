@@ -16,7 +16,7 @@ import { Logger } from "../backend/core/logging/Logger.js";
 import { MemoryManager } from "../backend/memory/MemoryManager.js";
 import { VoiceSidecarManager } from "../backend/voice/SidecarManager.js";
 import { TranscriptCorrector } from "../backend/voice/TranscriptCorrector.js";
-import type { AppSettings, MemoryCategory } from "../shared/types/index.js";
+import type { AIConfig, AppSettings, MemoryCategory } from "../shared/types/index.js";
 import { TrayManager } from "./electron/TrayManager.js";
 import { MediaPermissionManager } from "./permissions/MediaPermissionManager.js";
 
@@ -27,6 +27,76 @@ const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const logger = new Logger("Main");
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+
+let latestCameraFrame: { base64: string; updatedAt: number } | null = null;
+let liveVisionState = { camera: false, screen: false };
+let liveScreenTimer: NodeJS.Timeout | null = null;
+
+async function analyzeImageWithVision(
+  base64: string,
+  mimeType: "image/png" | "image/jpeg",
+  prompt: string,
+  aiConfig?: AIConfig
+): Promise<string | undefined> {
+  if (!aiConfig) return undefined;
+  let model = aiConfig.model;
+  if (!model || model === "auto") {
+    model = await aiClient.resolveEffectiveModel(aiConfig).catch(() => "");
+  }
+  if (!model || model === "auto") return undefined;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${aiConfig.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${aiConfig.apiKey}`
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 280,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              {
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${base64}` }
+              }
+            ]
+          }
+        ]
+      })
+    });
+    if (!res.ok) return undefined;
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return json.choices?.[0]?.message?.content?.trim();
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function capturePrimaryScreenBase64(): Promise<{
+  base64: string;
+  size: { width: number; height: number };
+} | null> {
+  const sources = await desktopCapturer
+    .getSources({ types: ["screen"], thumbnailSize: { width: 1280, height: 720 } })
+    .catch(() => []);
+  const primary = sources[0];
+  if (!primary) return null;
+  const pngBuf = primary.thumbnail.toPNG();
+  const base64 = pngBuf.toString("base64");
+  return { base64, size: primary.thumbnail.getSize() };
+}
 
 const configManager = new ConfigManager(app.getPath("userData"));
 const memoryManager = new MemoryManager(app.getPath("userData"));
@@ -80,66 +150,47 @@ registerDesktopTools({
   getAIConfig: () => configManager.getSettings().ai,
   captureScreenSummary: async (question, aiConfig) => {
     const winInfo = await desktopControl.computerAction({ action: "active_window" });
-    const sources = await desktopCapturer
-      .getSources({ types: ["screen"], thumbnailSize: { width: 1280, height: 720 } })
-      .catch(() => []);
-    const primary = sources[0];
-    if (!primary) {
+    const captured = await capturePrimaryScreenBase64();
+    if (!captured) {
       return { ...winInfo, screenshotSaved: false };
     }
-    const pngBuf = primary.thumbnail.toPNG();
     const outPath = path.join(app.getPath("userData"), "last-screen.png");
-    fs.writeFileSync(outPath, pngBuf);
+    fs.writeFileSync(outPath, Buffer.from(captured.base64, "base64"));
 
-    let visualAnalysis: string | undefined;
-    if (aiConfig && aiConfig.model && aiConfig.model !== "auto") {
-      try {
-        const b64 = pngBuf.toString("base64");
-        const res = await fetch(`${aiConfig.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${aiConfig.apiKey}`
-          },
-          body: JSON.stringify({
-            model: aiConfig.model,
-            max_tokens: 300,
-            messages: [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text:
-                      question ||
-                      "Ringkas apa yang sedang terlihat di layar desktop ini secara singkat dan jelas."
-                  },
-                  {
-                    type: "image_url",
-                    image_url: { url: `data:image/png;base64,${b64}` }
-                  }
-                ]
-              }
-            ]
-          })
-        });
-        if (res.ok) {
-          const json = (await res.json()) as {
-            choices?: Array<{ message?: { content?: string } }>;
-          };
-          visualAnalysis = json.choices?.[0]?.message?.content?.trim();
-        }
-      } catch {
-        // Vision fallback to active window metadata
-      }
-    }
+    const visualAnalysis = await analyzeImageWithVision(
+      captured.base64,
+      "image/png",
+      question || "Ringkas apa yang sedang terlihat di layar desktop ini secara singkat dan jelas.",
+      aiConfig
+    );
 
     return {
       ...winInfo,
       screenshotSaved: true,
       screenshotPath: outPath,
-      screenSize: primary.thumbnail.getSize(),
+      screenSize: captured.size,
       ...(visualAnalysis ? { visualAnalysis } : {})
+    };
+  },
+  captureCameraSummary: async (question, aiConfig) => {
+    if (!liveVisionState.camera || !latestCameraFrame) {
+      return {
+        cameraActive: false,
+        error: "Kamera belum diaktifkan. Minta pengguna menyalakan tombol Camera di dock bawah."
+      };
+    }
+    const visualAnalysis = await analyzeImageWithVision(
+      latestCameraFrame.base64,
+      "image/jpeg",
+      question || "Jelaskan apa yang terlihat di depan kamera (ekspresi orang, benda, atau suasana) secara singkat.",
+      aiConfig
+    );
+    return {
+      cameraActive: true,
+      frameAgeMs: Date.now() - latestCameraFrame.updatedAt,
+      ...(visualAnalysis
+        ? { visualAnalysis }
+        : { note: "Frame kamera tersedia tetapi model AI aktif tidak merespons analisis gambar." })
     };
   }
 });
@@ -299,7 +350,7 @@ function registerIpcHandlers(): void {
         mind: mindAfterUser
       });
 
-      const systemPromptOverride = memoryManager.buildSystemPrompt({
+      let systemPromptOverride = memoryManager.buildSystemPrompt({
         baseSystemPrompt: settings.ai.systemPrompt,
         persona: settings.persona,
         userText: finalUserText,
@@ -307,6 +358,10 @@ function registerIpcHandlers(): void {
         voiceEmotion: payload.voiceEmotion,
         speakerLabel: payload.speakerLabel
       });
+
+      if (liveVisionState.camera || liveVisionState.screen) {
+        systemPromptOverride += `\n\n[LIVE VISION STATUS]\nLive Camera: ${liveVisionState.camera ? "ON (panggil camera_see jika ditanya atau ingin melihat pengguna/sekitar)" : "OFF"} | Live Screen: ${liveVisionState.screen ? "ON (panggil screen_understand untuk melihat layar desktop saat ini)" : "OFF"}`;
+      }
 
       try {
         const assistantMsg = await aiClient.sendMessage({
@@ -445,6 +500,39 @@ function registerIpcHandlers(): void {
       base64: data.toString("base64")
     };
   });
+
+  ipcMain.handle("nika:vision-update-camera", (_event, base64: string | null) => {
+    if (!base64) {
+      latestCameraFrame = null;
+    } else {
+      latestCameraFrame = { base64, updatedAt: Date.now() };
+    }
+    return true;
+  });
+
+  ipcMain.handle(
+    "nika:vision-set-live",
+    async (_event, state: { camera?: boolean; screen?: boolean }) => {
+      if (state.camera !== undefined) {
+        liveVisionState.camera = state.camera;
+        if (!state.camera) latestCameraFrame = null;
+      }
+      if (state.screen !== undefined) {
+        liveVisionState.screen = state.screen;
+        if (liveScreenTimer) {
+          clearInterval(liveScreenTimer);
+          liveScreenTimer = null;
+        }
+        if (state.screen) {
+          await capturePrimaryScreenBase64();
+          liveScreenTimer = setInterval(() => {
+            void capturePrimaryScreenBase64();
+          }, 4000);
+        }
+      }
+      return true;
+    }
+  );
 
   ipcMain.handle("nika:toggle-always-on-top", () => {
     const current = configManager.getSettings();

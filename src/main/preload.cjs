@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld("nikaAPI", {
   synthesizeSpeech: (payload) => ipcRenderer.invoke("nika:tts-synthesize", payload),
   pickAvatarFile: () => ipcRenderer.invoke("nika:pick-avatar"),
   toggleAlwaysOnTop: () => ipcRenderer.invoke("nika:toggle-always-on-top"),
+  updateCameraFrame: (base64) => ipcRenderer.invoke("nika:vision-update-camera", base64),
+  setLiveVision: (state) => ipcRenderer.invoke("nika:vision-set-live", state),
   onChatStream: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("nika:chat-stream", listener);
