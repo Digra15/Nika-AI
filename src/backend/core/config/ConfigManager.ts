@@ -66,7 +66,9 @@ export class ConfigManager {
       ui: {
         alwaysOnTop: process.env.NIKA_ALWAYS_ON_TOP === "true",
         avatarPath: "",
-        language: (process.env.NIKA_LANGUAGE as "id" | "en") || "id"
+        language: (process.env.NIKA_LANGUAGE as "id" | "en") || "id",
+        cameraDeviceId: "default",
+        cameraResolution: "640x480"
       }
     };
   }

@@ -81,6 +81,7 @@ export default function App() {
   const [micError, setMicError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [liveScreenActive, setLiveScreenActive] = useState(false);
   const visionPipelineRef = useRef<VisionPipeline | null>(null);
   const cameraPreviewRef = useRef<HTMLVideoElement | null>(null);
@@ -390,15 +391,27 @@ export default function App() {
       visionPipelineRef.current?.stopCamera();
       cameraStreamRef.current = null;
       setCameraActive(false);
+      setCameraError(null);
       await window.nikaAPI?.setLiveVision?.({ camera: false });
       return;
     }
     try {
+      setCameraError(null);
       if (!visionPipelineRef.current) {
         visionPipelineRef.current = new VisionPipeline();
       }
-      const stream = await visionPipelineRef.current.startCamera((b64) => {
-        void window.nikaAPI?.updateCameraFrame?.(b64);
+      const stream = await visionPipelineRef.current.startCamera({
+        deviceId: settingsRef.current?.ui.cameraDeviceId,
+        resolution: settingsRef.current?.ui.cameraResolution ?? "640x480",
+        onFrame: (b64) => {
+          void window.nikaAPI?.updateCameraFrame?.(b64);
+        },
+        onTrackEnded: (reason) => {
+          cameraStreamRef.current = null;
+          setCameraActive(false);
+          setCameraError(reason);
+          void window.nikaAPI?.setLiveVision?.({ camera: false });
+        }
       });
       cameraStreamRef.current = stream;
       setCameraActive(true);
@@ -406,10 +419,14 @@ export default function App() {
       window.setTimeout(() => {
         if (cameraPreviewRef.current && cameraStreamRef.current) {
           cameraPreviewRef.current.srcObject = cameraStreamRef.current;
+          void cameraPreviewRef.current.play().catch(() => {});
         }
       }, 60);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("Camera error:", err);
+      setCameraActive(false);
+      setCameraError(msg);
     }
   };
 
@@ -713,12 +730,12 @@ export default function App() {
             )}
 
             <button
-              className={`nika-btn ${cameraActive ? "active" : ""}`}
+              className={`nika-btn ${cameraError ? "danger" : cameraActive ? "active" : ""}`}
               onClick={() => void toggleCamera()}
-              title="Aktifkan/Matikan Kamera (Live Vision)"
+              title={cameraError || "Aktifkan/Matikan Kamera (Live Vision)"}
             >
               {cameraActive ? <Camera size={14} /> : <CameraOff size={14} />}
-              {cameraActive ? "Cam On" : "Cam"}
+              {cameraError ? "Cam Error" : cameraActive ? "Cam On" : "Cam"}
             </button>
 
             <button

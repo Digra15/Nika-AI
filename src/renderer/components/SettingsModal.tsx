@@ -51,6 +51,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
   const [draft, setDraft] = useState<AppSettings>(() => structuredClone(settings));
   const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
+  const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
   const [syncState, setSyncState] = useState<"idle" | "saving" | "saved">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testingModels, setTestingModels] = useState(false);
@@ -64,6 +65,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     void navigator.mediaDevices.enumerateDevices().then((devices) => {
       setAudioInputs(devices.filter((d) => d.kind === "audioinput"));
+      setVideoInputs(devices.filter((d) => d.kind === "videoinput"));
     });
     if (window.nikaAPI?.getMemorySnapshot) {
       void window.nikaAPI.getMemorySnapshot().then((snap) => {
@@ -886,6 +888,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <option value="false">Normal Window</option>
                     <option value="true">Selalu di Atas (Always on Top)</option>
+                  </select>
+                </label>
+                <label className="nika-field">
+                  Kamera (Webcam Device)
+                  <select
+                    className="nika-select"
+                    value={draft.ui.cameraDeviceId ?? "default"}
+                    onChange={(e) =>
+                      applyInstant({
+                        ...draft,
+                        ui: { ...draft.ui, cameraDeviceId: e.target.value }
+                      })
+                    }
+                  >
+                    <option value="default">System Default</option>
+                    {videoInputs.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Camera ${d.deviceId.slice(0, 6)}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="nika-field">
+                  Resolusi Kamera
+                  <select
+                    className="nika-select"
+                    value={draft.ui.cameraResolution ?? "640x480"}
+                    onChange={(e) =>
+                      applyInstant({
+                        ...draft,
+                        ui: {
+                          ...draft.ui,
+                          cameraResolution: e.target.value as "auto" | "640x480" | "1280x720"
+                        }
+                      })
+                    }
+                  >
+                    <option value="640x480">640x480 (Cepat & Ringan)</option>
+                    <option value="1280x720">1280x720 (HD)</option>
+                    <option value="auto">Auto (Default Kamera)</option>
                   </select>
                 </label>
               </div>

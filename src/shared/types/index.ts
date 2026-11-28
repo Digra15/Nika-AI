@@ -154,6 +154,8 @@ export interface AppSettings {
     alwaysOnTop: boolean;
     avatarPath: string;
     language: "id" | "en";
+    cameraDeviceId?: string;
+    cameraResolution?: "auto" | "640x480" | "1280x720";
   };
 }
 
