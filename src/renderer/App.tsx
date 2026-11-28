@@ -25,6 +25,7 @@ import type { AvatarGestureType } from "./avatar/AvatarController";
 import { AvatarScene } from "./avatar/AvatarScene";
 import { NikaBootScreen } from "./components/NikaBootScreen";
 import { SettingsModal } from "./components/SettingsModal";
+import { getDefaultPersonaConfig } from "../shared/personaPresets";
 import type { SystemReadiness } from "../shared/types/index";
 
 export default function App() {
@@ -507,8 +508,45 @@ export default function App() {
           <button
             className="nika-btn"
             onClick={async () => {
-              const latest = await window.nikaAPI.getSettings();
-              setSettings(latest);
+              if (window.nikaAPI) {
+                const latest = await window.nikaAPI.getSettings();
+                setSettings(latest);
+              } else if (!settings) {
+                setSettings({
+                  ai: {
+                    baseUrl: "http://127.0.0.1:20128/v1",
+                    apiKey: "9router-local-key",
+                    model: "auto",
+                    temperature: 0.7,
+                    maxTokens: 1024,
+                    reasoningEffort: "medium",
+                    systemPrompt: ""
+                  },
+                  persona: getDefaultPersonaConfig(),
+                  voice: {
+                    host: "127.0.0.1",
+                    port: 20135,
+                    sttEngine: "faster-whisper",
+                    sttModel: "sherpa-zipformer-id-en",
+                    sttLanguage: "id",
+                    ttsEngine: "auto",
+                    ttsVoiceId: "id_ID-news_tts-medium",
+                    ttsVoiceEn: "af_heart",
+                    ttsSpeed: 1,
+                    sentencePauseMs: 480,
+                    breathAudioEnabled: true,
+                    breathVolume: 0.1,
+                    bargeInEnabled: true,
+                    vadThreshold: 0.45,
+                    vadMinSilenceMs: 420,
+                    listeningMode: "auto",
+                    wakeWord: "nika",
+                    inputDeviceId: "default",
+                    outputDeviceId: "default"
+                  },
+                  ui: { alwaysOnTop: false, avatarPath: "", language: "id" }
+                });
+              }
               setShowSettings(true);
             }}
           >

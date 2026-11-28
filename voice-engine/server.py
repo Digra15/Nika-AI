@@ -43,30 +43,41 @@ voice_analyzer = VoiceAnalyzer()
 
 
 async def _load_models():
-    try:
-        print(f"[voice-sidecar] Loading Silero VAD...", flush=True)
-        await asyncio.to_thread(vad_engine.load)
-        print(f"[voice-sidecar] Silero VAD ready", flush=True)
-    except Exception as exc:
-        print(f"[voice-sidecar] Failed to load Silero VAD: {exc}", flush=True)
+    async def load_vad():
+        try:
+            print("[voice-sidecar] Loading Silero VAD...", flush=True)
+            await asyncio.to_thread(vad_engine.load)
+            print("[voice-sidecar] Silero VAD ready", flush=True)
+        except Exception as exc:
+            print(f"[voice-sidecar] Failed to load Silero VAD: {exc}", flush=True)
 
-    try:
-        print(f"[voice-sidecar] Loading STT model '{stt_engine.model_name}'...", flush=True)
-        await asyncio.to_thread(stt_engine.load)
-        print(f"[voice-sidecar] STT model '{stt_engine.model_name}' ready", flush=True)
-        if stt_engine is sherpa_stt:
+    async def load_primary_stt():
+        try:
+            print(f"[voice-sidecar] Loading STT model '{stt_engine.model_name}'...", flush=True)
+            await asyncio.to_thread(stt_engine.load)
+            print(f"[voice-sidecar] STT model '{stt_engine.model_name}' ready", flush=True)
+        except Exception as exc:
+            print(f"[voice-sidecar] Failed to load STT model '{stt_engine.model_name}': {exc}", flush=True)
+
+    async def load_tts():
+        if tts_manager.pocket.is_available():
+            try:
+                print("[voice-sidecar] Loading Pocket TTS (Nika voice clone)...", flush=True)
+                await asyncio.to_thread(tts_manager.pocket.load)
+                print("[voice-sidecar] Pocket TTS ready", flush=True)
+            except Exception as exc:
+                print(f"[voice-sidecar] Failed to load Pocket TTS: {exc}", flush=True)
+
+    # Load Silero VAD, primary Sherpa STT, and Pocket TTS in parallel for fast startup
+    await asyncio.gather(load_vad(), load_primary_stt(), load_tts())
+
+    # Defer Whisper fallback loading to background so startup readiness is not blocked
+    if stt_engine is sherpa_stt:
+        try:
             await asyncio.to_thread(whisper_fallback.load)
             print("[voice-sidecar] Whisper fallback ready", flush=True)
-    except Exception as exc:
-        print(f"[voice-sidecar] Failed to load STT model '{stt_engine.model_name}': {exc}", flush=True)
-
-    if tts_manager.pocket.is_available():
-        try:
-            print("[voice-sidecar] Loading Pocket TTS (Nika voice clone)...", flush=True)
-            await asyncio.to_thread(tts_manager.pocket.load)
-            print("[voice-sidecar] Pocket TTS ready", flush=True)
         except Exception as exc:
-            print(f"[voice-sidecar] Failed to load Pocket TTS: {exc}", flush=True)
+            print(f"[voice-sidecar] Failed to load Whisper fallback: {exc}", flush=True)
 
 
 @asynccontextmanager

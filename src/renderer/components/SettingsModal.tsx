@@ -717,10 +717,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {speakers.map((s) => (
-                        <div key={s.id} className="nika-boot-row">
+                        <div key={s.id} className="nika-boot-row" style={{ gap: 10 }}>
                           <input
                             className="nika-input"
-                            style={{ width: 220, padding: "4px 8px" }}
+                            style={{ flex: 1, minWidth: 0, maxWidth: 240, padding: "4px 8px" }}
                             value={s.label}
                             onChange={(e) => {
                               const val = e.target.value;

@@ -337,6 +337,7 @@ body,
 }
 
 .nika-select {
+  max-width: 100%;
   background: rgba(9, 8, 15, 0.9);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-sm);
@@ -345,6 +346,19 @@ body,
   font-size: 12px;
   outline: none;
   cursor: pointer;
+}
+
+.nika-settings-content .nika-select {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nika-settings-content input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0 0;
 }
 
 .nika-select:focus {
@@ -364,12 +378,12 @@ body,
 }
 
 .nika-settings-shell {
-  width: 840px;
+  width: 860px;
   max-width: 94vw;
-  height: 580px;
+  height: 600px;
   max-height: 88vh;
   display: grid;
-  grid-template-columns: 210px 1fr;
+  grid-template-columns: 205px minmax(0, 1fr);
   background: #100e1c;
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-lg);
@@ -426,25 +440,31 @@ body,
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .nika-settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-hairline);
+  flex-shrink: 0;
 }
 
 .nika-settings-content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px 20px;
 }
 
 .nika-field-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -453,6 +473,7 @@ body,
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
