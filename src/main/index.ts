@@ -4,8 +4,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { DesktopControlService } from "../backend/agent-skills/DesktopControlService.js";
 import { GameCompanionService } from "../backend/agent-skills/GameCompanionService.js";
+import { KnowledgeAssistantService } from "../backend/agent-skills/KnowledgeAssistantService.js";
 import { registerDesktopTools } from "../backend/agent-skills/registerDesktopTools.js";
 import { registerGameTools } from "../backend/agent-skills/registerGameTools.js";
+import { registerKnowledgeTools } from "../backend/agent-skills/registerKnowledgeTools.js";
 import { NikaBrain } from "../backend/ai/brain/NikaBrain.js";
 import { registerBrainTools } from "../backend/ai/brain/registerBrainTools.js";
 import { OpenAICompatibleProvider } from "../backend/ai/providers/OpenAICompatibleProvider.js";
@@ -114,6 +116,7 @@ const memoryManager = new MemoryManager(app.getPath("userData"));
 const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
 const desktopControl = new DesktopControlService(PROJECT_ROOT);
 const gameCompanion = new GameCompanionService();
+const knowledgeAssistant = new KnowledgeAssistantService(app.getPath("userData"));
 const sharedProvider = new OpenAICompatibleProvider();
 const toolRegistry = new ToolRegistry();
 const nikaBrain = new NikaBrain(sharedProvider, toolRegistry);
@@ -235,6 +238,12 @@ registerGameTools({
       gesture: reaction.gesture
     });
   }
+});
+registerKnowledgeTools({
+  registry: toolRegistry,
+  knowledgeService: knowledgeAssistant,
+  browserService: agentBrowser,
+  desktopControl
 });
 const aiClient = new NineRouterClient();
 aiClient.setHistory(memoryManager.getRecentHistory());
