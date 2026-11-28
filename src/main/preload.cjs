@@ -20,6 +20,18 @@ contextBridge.exposeInMainWorld("nikaAPI", {
   toggleAlwaysOnTop: () => ipcRenderer.invoke("nika:toggle-always-on-top"),
   updateCameraFrame: (base64) => ipcRenderer.invoke("nika:vision-update-camera", base64),
   setLiveVision: (state) => ipcRenderer.invoke("nika:vision-set-live", state),
+  startNativeCamera: (opts) => ipcRenderer.invoke("nika:vision-start-native-camera", opts),
+  stopNativeCamera: () => ipcRenderer.invoke("nika:vision-stop-native-camera"),
+  onNativeCameraFrame: (callback) => {
+    const listener = (_event, base64) => callback(base64);
+    ipcRenderer.on("nika:vision-camera-frame", listener);
+    return () => ipcRenderer.removeListener("nika:vision-camera-frame", listener);
+  },
+  onNativeCameraError: (callback) => {
+    const listener = (_event, reason) => callback(reason);
+    ipcRenderer.on("nika:vision-camera-error", listener);
+    return () => ipcRenderer.removeListener("nika:vision-camera-error", listener);
+  },
   onChatStream: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("nika:chat-stream", listener);

@@ -87,6 +87,8 @@ export default function App() {
   const cameraPreviewRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraBusyRef = useRef(false);
+  const [nativeCameraFrame, setNativeCameraFrame] = useState<string | null>(null);
+  const nativeCameraActiveRef = useRef(false);
   const [booting, setBooting] = useState(() => Boolean(typeof window !== "undefined" && window.nikaAPI));
   const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
   const [allowBootSkip, setAllowBootSkip] = useState(false);
@@ -387,6 +389,51 @@ export default function App() {
     return "idle";
   }, [isSpeaking, isGenerating, vadActive, emotion]);
 
+  useEffect(() => {
+    const offFrame = window.nikaAPI?.onNativeCameraFrame?.((b64) => {
+      if (nativeCameraActiveRef.current) {
+        setNativeCameraFrame(b64);
+      }
+    });
+    const offErr = window.nikaAPI?.onNativeCameraError?.((reason) => {
+      nativeCameraActiveRef.current = false;
+      setNativeCameraFrame(null);
+      setCameraActive(false);
+      setCameraError(reason);
+    });
+    return () => {
+      offFrame?.();
+      offErr?.();
+    };
+  }, []);
+
+  const startNativeCameraFallback = async (): Promise<boolean> => {
+    if (!window.nikaAPI?.startNativeCamera) return false;
+    try {
+      let deviceName: string | undefined;
+      const targetId = settingsRef.current?.ui.cameraDeviceId;
+      if (targetId && targetId !== "default" && navigator.mediaDevices?.enumerateDevices) {
+        const devs = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+        deviceName = devs.find((d) => d.kind === "videoinput" && d.deviceId === targetId)?.label || undefined;
+      }
+      nativeCameraActiveRef.current = true;
+      await window.nikaAPI.startNativeCamera({
+        deviceName,
+        resolution: settingsRef.current?.ui.cameraResolution ?? "1280x720"
+      });
+      setCameraActive(true);
+      setCameraError(null);
+      return true;
+    } catch (err) {
+      nativeCameraActiveRef.current = false;
+      setNativeCameraFrame(null);
+      const msg = err instanceof Error ? err.message : String(err);
+      setCameraActive(false);
+      setCameraError(msg);
+      return false;
+    }
+  };
+
   const toggleCamera = async () => {
     if (cameraBusyRef.current) return;
     cameraBusyRef.current = true;
@@ -394,6 +441,11 @@ export default function App() {
       if (cameraActive) {
         visionPipelineRef.current?.stopCamera();
         cameraStreamRef.current = null;
+        if (nativeCameraActiveRef.current) {
+          nativeCameraActiveRef.current = false;
+          setNativeCameraFrame(null);
+          await window.nikaAPI?.stopNativeCamera?.();
+        }
         setCameraActive(false);
         setCameraError(null);
         await window.nikaAPI?.setLiveVision?.({ camera: false });
@@ -403,44 +455,56 @@ export default function App() {
       if (!visionPipelineRef.current) {
         visionPipelineRef.current = new VisionPipeline();
       }
-      const stream = await visionPipelineRef.current.startCamera({
-        deviceId: settingsRef.current?.ui.cameraDeviceId,
-        resolution: settingsRef.current?.ui.cameraResolution ?? "1280x720",
-        onFrame: (b64) => {
-          void window.nikaAPI?.updateCameraFrame?.(b64);
-        },
-        onStreamReady: (restartedStream) => {
-          cameraStreamRef.current = restartedStream;
-          setCameraActive(true);
-          setCameraError(null);
-          window.setTimeout(() => {
-            if (cameraPreviewRef.current && cameraStreamRef.current) {
-              cameraPreviewRef.current.srcObject = cameraStreamRef.current;
-              void cameraPreviewRef.current.play().catch(() => {});
+      const startedAt = Date.now();
+      try {
+        const stream = await visionPipelineRef.current.startCamera({
+          deviceId: settingsRef.current?.ui.cameraDeviceId,
+          resolution: settingsRef.current?.ui.cameraResolution ?? "1280x720",
+          onFrame: (b64) => {
+            void window.nikaAPI?.updateCameraFrame?.(b64);
+          },
+          onStreamReady: (restartedStream) => {
+            cameraStreamRef.current = restartedStream;
+            setCameraActive(true);
+            setCameraError(null);
+            window.setTimeout(() => {
+              if (cameraPreviewRef.current && cameraStreamRef.current) {
+                cameraPreviewRef.current.srcObject = cameraStreamRef.current;
+                void cameraPreviewRef.current.play().catch(() => {});
+              }
+            }, 60);
+          },
+          onTrackEnded: (reason) => {
+            cameraStreamRef.current = null;
+            // If Chromium's getUserMedia dropped the webcam shortly after start, switch to ffmpeg DirectShow
+            if (Date.now() - startedAt < 5000 && Boolean(window.nikaAPI?.startNativeCamera)) {
+              void startNativeCameraFallback();
+              return;
             }
-          }, 60);
-        },
-        onTrackEnded: (reason) => {
-          cameraStreamRef.current = null;
+            setCameraActive(false);
+            setCameraError(reason);
+            void window.nikaAPI?.setLiveVision?.({ camera: false });
+          }
+        });
+        cameraStreamRef.current = stream;
+        setCameraActive(true);
+        await window.nikaAPI?.setLiveVision?.({ camera: true });
+        window.setTimeout(() => {
+          if (cameraPreviewRef.current && cameraStreamRef.current) {
+            cameraPreviewRef.current.srcObject = cameraStreamRef.current;
+            void cameraPreviewRef.current.play().catch(() => {});
+          }
+        }, 60);
+      } catch (err) {
+        // Fallback immediately to ffmpeg DirectShow when Electron getUserMedia fails
+        const ok = await startNativeCameraFallback();
+        if (!ok) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error("Camera error:", err);
           setCameraActive(false);
-          setCameraError(reason);
-          void window.nikaAPI?.setLiveVision?.({ camera: false });
+          setCameraError(msg);
         }
-      });
-      cameraStreamRef.current = stream;
-      setCameraActive(true);
-      await window.nikaAPI?.setLiveVision?.({ camera: true });
-      window.setTimeout(() => {
-        if (cameraPreviewRef.current && cameraStreamRef.current) {
-          cameraPreviewRef.current.srcObject = cameraStreamRef.current;
-          void cameraPreviewRef.current.play().catch(() => {});
-        }
-      }, 60);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("Camera error:", err);
-      setCameraActive(false);
-      setCameraError(msg);
+      }
     } finally {
       cameraBusyRef.current = false;
     }
@@ -789,12 +853,10 @@ export default function App() {
             </div>
           )}
 
-          {cameraActive && (
-            <video
-              ref={cameraPreviewRef}
-              autoPlay
-              muted
-              playsInline
+          {cameraActive && nativeCameraFrame ? (
+            <img
+              src={`data:image/jpeg;base64,${nativeCameraFrame}`}
+              alt="Camera Preview"
               style={{
                 position: "absolute",
                 bottom: 18,
@@ -809,6 +871,28 @@ export default function App() {
                 transform: "scaleX(-1)"
               }}
             />
+          ) : (
+            cameraActive && (
+              <video
+                ref={cameraPreviewRef}
+                autoPlay
+                muted
+                playsInline
+                style={{
+                  position: "absolute",
+                  bottom: 18,
+                  left: 18,
+                  width: 128,
+                  height: 96,
+                  objectFit: "cover",
+                  borderRadius: 10,
+                  border: "1px solid rgba(56, 189, 248, 0.45)",
+                  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.5)",
+                  zIndex: 12,
+                  transform: "scaleX(-1)"
+                }}
+              />
+            )
           )}
         </section>
 

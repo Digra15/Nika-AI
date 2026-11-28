@@ -18,6 +18,7 @@ import { Logger } from "../backend/core/logging/Logger.js";
 import { MemoryManager } from "../backend/memory/MemoryManager.js";
 import { VoiceSidecarManager } from "../backend/voice/SidecarManager.js";
 import { TranscriptCorrector } from "../backend/voice/TranscriptCorrector.js";
+import { NativeCameraService, type NativeCameraResolution } from "../backend/vision/NativeCameraService.js";
 import type { AIConfig, AppSettings, MemoryCategory } from "../shared/types/index.js";
 import { TrayManager } from "./electron/TrayManager.js";
 import { MediaPermissionManager } from "./permissions/MediaPermissionManager.js";
@@ -240,6 +241,7 @@ aiClient.setHistory(memoryManager.getRecentHistory());
 const voiceSidecar = new VoiceSidecarManager(PROJECT_ROOT);
 const trayManager = new TrayManager();
 const mediaPermissions = new MediaPermissionManager();
+const nativeCamera = new NativeCameraService();
 
 function resolvePreloadPath(): string {
   const srcPreload = path.join(PROJECT_ROOT, "src", "main", "preload.cjs");
@@ -556,6 +558,38 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(
+    "nika:vision-start-native-camera",
+    async (
+      _event,
+      opts: { deviceName?: string; resolution?: NativeCameraResolution }
+    ) => {
+      const info = await nativeCamera.start({
+        deviceName: opts?.deviceName,
+        resolution: opts?.resolution ?? "1280x720",
+        onFrame: (base64) => {
+          latestCameraFrame = { base64, updatedAt: Date.now() };
+          liveVisionState.camera = true;
+          mainWindow?.webContents.send("nika:vision-camera-frame", base64);
+        },
+        onError: (reason) => {
+          liveVisionState.camera = false;
+          latestCameraFrame = null;
+          mainWindow?.webContents.send("nika:vision-camera-error", reason);
+        }
+      });
+      liveVisionState.camera = true;
+      return info;
+    }
+  );
+
+  ipcMain.handle("nika:vision-stop-native-camera", () => {
+    nativeCamera.stop();
+    liveVisionState.camera = false;
+    latestCameraFrame = null;
+    return true;
+  });
+
+  ipcMain.handle(
     "nika:vision-set-live",
     async (_event, state: { camera?: boolean; screen?: boolean }) => {
       if (state.camera !== undefined) {
@@ -619,6 +653,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  nativeCamera.stop();
   void agentBrowser.close();
   voiceSidecar.stop();
   trayManager.destroy();

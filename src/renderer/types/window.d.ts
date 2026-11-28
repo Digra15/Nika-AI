@@ -71,6 +71,13 @@ export interface NikaAPI {
   toggleAlwaysOnTop: () => Promise<boolean>;
   updateCameraFrame: (base64: string | null) => Promise<boolean>;
   setLiveVision: (state: { camera?: boolean; screen?: boolean }) => Promise<boolean>;
+  startNativeCamera: (opts?: {
+    deviceName?: string;
+    resolution?: "auto" | "320x240" | "640x360" | "640x480" | "1280x720";
+  }) => Promise<{ deviceName: string; size: string; fps: number }>;
+  stopNativeCamera: () => Promise<boolean>;
+  onNativeCameraFrame: (cb: (base64: string) => void) => () => void;
+  onNativeCameraError: (cb: (reason: string) => void) => () => void;
   onChatStream: (cb: (event: ChatStreamEvent) => void) => () => void;
 }
 
