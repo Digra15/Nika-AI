@@ -27,6 +27,13 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 
 const logger = new Logger("Main");
+if (process.platform === "win32") {
+  // Prevent Windows MediaFoundation D3D11 zero-copy video capture utility process crashes on Electron/Chromium
+  app.commandLine.appendSwitch(
+    "disable-features",
+    "MediaFoundationD3D11VideoCapture,MediaFoundationVideoCapture"
+  );
+}
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
@@ -276,6 +283,10 @@ function createWindow(): void {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logger.error(`Renderer process gone: ${details.reason} (exitCode=${details.exitCode})`);
   });
 }
 
@@ -577,6 +588,12 @@ function registerIpcHandlers(): void {
     return next;
   });
 }
+
+app.on("child-process-gone", (_event, details) => {
+  logger.error(
+    `Child process gone: type=${details.type}, reason=${details.reason}, name=${details.name ?? details.serviceName ?? "unknown"}, exitCode=${details.exitCode}`
+  );
+});
 
 app.whenReady().then(async () => {
   await mediaPermissions.initialize();

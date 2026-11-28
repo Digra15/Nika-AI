@@ -7,6 +7,7 @@ export interface CameraStartOptions {
 
 export class VisionPipeline {
   private stream: MediaStream | null = null;
+  private startingPromise: Promise<MediaStream> | null = null;
   private videoEl: HTMLVideoElement | null = null;
   private canvasEl: HTMLCanvasElement | null = null;
   private diffCanvasEl: HTMLCanvasElement | null = null;
@@ -24,9 +25,11 @@ export class VisionPipeline {
     if (resolution === "640x480") {
       base.width = { ideal: 640 };
       base.height = { ideal: 480 };
+      base.frameRate = { ideal: 24, max: 30 };
     } else if (resolution === "1280x720") {
       base.width = { ideal: 1280 };
       base.height = { ideal: 720 };
+      base.frameRate = { ideal: 24, max: 30 };
     }
     return base;
   }
@@ -35,7 +38,17 @@ export class VisionPipeline {
     if (this.stream) {
       return this.stream;
     }
+    if (this.startingPromise) {
+      return this.startingPromise;
+    }
 
+    this.startingPromise = this.startCameraInternal(opts).finally(() => {
+      this.startingPromise = null;
+    });
+    return this.startingPromise;
+  }
+
+  private async startCameraInternal(opts: CameraStartOptions): Promise<MediaStream> {
     let stream: MediaStream;
     try {
       const constraints = this.buildConstraints(opts.deviceId, opts.resolution);
@@ -44,7 +57,7 @@ export class VisionPipeline {
         audio: false
       });
     } catch {
-      // Fallback to bare { video: true } if webcam rejects resolution or deviceId constraints
+      // Fallback to bare { video: true } if webcam rejects resolution, fps, or deviceId constraints
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     }
 
@@ -140,7 +153,10 @@ export class VisionPipeline {
       clearInterval(this.timer);
       this.timer = null;
     }
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream?.getTracks().forEach((t) => {
+      t.onended = null;
+      t.stop();
+    });
     this.stream = null;
     if (this.videoEl) {
       this.videoEl.srcObject = null;

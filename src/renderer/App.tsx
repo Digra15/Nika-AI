@@ -86,6 +86,7 @@ export default function App() {
   const visionPipelineRef = useRef<VisionPipeline | null>(null);
   const cameraPreviewRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraBusyRef = useRef(false);
   const [booting, setBooting] = useState(() => Boolean(typeof window !== "undefined" && window.nikaAPI));
   const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
   const [allowBootSkip, setAllowBootSkip] = useState(false);
@@ -387,15 +388,17 @@ export default function App() {
   }, [isSpeaking, isGenerating, vadActive, emotion]);
 
   const toggleCamera = async () => {
-    if (cameraActive) {
-      visionPipelineRef.current?.stopCamera();
-      cameraStreamRef.current = null;
-      setCameraActive(false);
-      setCameraError(null);
-      await window.nikaAPI?.setLiveVision?.({ camera: false });
-      return;
-    }
+    if (cameraBusyRef.current) return;
+    cameraBusyRef.current = true;
     try {
+      if (cameraActive) {
+        visionPipelineRef.current?.stopCamera();
+        cameraStreamRef.current = null;
+        setCameraActive(false);
+        setCameraError(null);
+        await window.nikaAPI?.setLiveVision?.({ camera: false });
+        return;
+      }
       setCameraError(null);
       if (!visionPipelineRef.current) {
         visionPipelineRef.current = new VisionPipeline();
@@ -427,6 +430,8 @@ export default function App() {
       console.error("Camera error:", err);
       setCameraActive(false);
       setCameraError(msg);
+    } finally {
+      cameraBusyRef.current = false;
     }
   };
 
