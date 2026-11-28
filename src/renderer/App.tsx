@@ -452,6 +452,11 @@ export default function App() {
         return;
       }
       setCameraError(null);
+      const backend = settingsRef.current?.ui.cameraBackend ?? "ffmpeg-dshow";
+      if (backend === "ffmpeg-dshow" && Boolean(window.nikaAPI?.startNativeCamera)) {
+        await startNativeCameraFallback();
+        return;
+      }
       if (!visionPipelineRef.current) {
         visionPipelineRef.current = new VisionPipeline();
       }
@@ -477,7 +482,11 @@ export default function App() {
           onTrackEnded: (reason) => {
             cameraStreamRef.current = null;
             // If Chromium's getUserMedia dropped the webcam shortly after start, switch to ffmpeg DirectShow
-            if (Date.now() - startedAt < 5000 && Boolean(window.nikaAPI?.startNativeCamera)) {
+            if (
+              backend === "auto" &&
+              Date.now() - startedAt < 5000 &&
+              Boolean(window.nikaAPI?.startNativeCamera)
+            ) {
               void startNativeCameraFallback();
               return;
             }
@@ -497,7 +506,7 @@ export default function App() {
         }, 60);
       } catch (err) {
         // Fallback immediately to ffmpeg DirectShow when Electron getUserMedia fails
-        const ok = await startNativeCameraFallback();
+        const ok = backend === "auto" ? await startNativeCameraFallback() : false;
         if (!ok) {
           const msg = err instanceof Error ? err.message : String(err);
           console.error("Camera error:", err);

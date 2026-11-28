@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("nikaAPI", {
   setLiveVision: (state) => ipcRenderer.invoke("nika:vision-set-live", state),
   startNativeCamera: (opts) => ipcRenderer.invoke("nika:vision-start-native-camera", opts),
   stopNativeCamera: () => ipcRenderer.invoke("nika:vision-stop-native-camera"),
+  listNativeCameras: () => ipcRenderer.invoke("nika:vision-list-native-cameras"),
   onNativeCameraFrame: (callback) => {
     const listener = (_event, base64) => callback(base64);
     ipcRenderer.on("nika:vision-camera-frame", listener);

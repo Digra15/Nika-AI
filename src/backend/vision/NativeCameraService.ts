@@ -133,16 +133,23 @@ export class NativeCameraService {
 
     const resKey: Exclude<NativeCameraResolution, "auto"> =
       opts.resolution && opts.resolution !== "auto" ? opts.resolution : "1280x720";
-    const candidates = [
+    const candidates: Array<{ size: string; fps: number; vcodec?: string }> = [
+      ...PRESET_PROFILES[resKey].map((p) => ({ ...p, vcodec: "mjpeg" })),
       ...PRESET_PROFILES[resKey],
-      { size: "640x360", fps: 15 },
+      { size: "640x360", fps: 15, vcodec: "mjpeg" },
       { size: "640x480", fps: 15 },
       { size: "320x240", fps: 15 }
     ];
 
     let lastErr = "Gagal membuka kamera via ffmpeg DirectShow.";
     for (const profile of candidates) {
-      const result = await this.trySpawnProfile(targetDevice, profile.size, profile.fps, opts);
+      const result = await this.trySpawnProfile(
+        targetDevice,
+        profile.size,
+        profile.fps,
+        profile.vcodec,
+        opts
+      );
       if (result.ok) {
         return { deviceName: targetDevice, size: profile.size, fps: profile.fps };
       }
@@ -157,6 +164,7 @@ export class NativeCameraService {
     deviceName: string,
     size: string,
     fps: number,
+    inputVcodec: string | undefined,
     opts: NativeCameraStartOptions
   ): Promise<{ ok: boolean; error?: string }> {
     return new Promise((resolve) => {
@@ -174,6 +182,7 @@ export class NativeCameraService {
         "dshow",
         "-rtbufsize",
         "64M",
+        ...(inputVcodec ? ["-vcodec", inputVcodec] : []),
         "-video_size",
         size,
         "-framerate",

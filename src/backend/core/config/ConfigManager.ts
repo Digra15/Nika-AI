@@ -68,7 +68,8 @@ export class ConfigManager {
         avatarPath: "",
         language: (process.env.NIKA_LANGUAGE as "id" | "en") || "id",
         cameraDeviceId: "default",
-        cameraResolution: "1280x720"
+        cameraResolution: "1280x720",
+        cameraBackend: "ffmpeg-dshow"
       }
     };
   }

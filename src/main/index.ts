@@ -589,6 +589,8 @@ function registerIpcHandlers(): void {
     return true;
   });
 
+  ipcMain.handle("nika:vision-list-native-cameras", () => nativeCamera.listDevices());
+
   ipcMain.handle(
     "nika:vision-set-live",
     async (_event, state: { camera?: boolean; screen?: boolean }) => {

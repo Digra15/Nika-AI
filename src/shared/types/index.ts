@@ -156,6 +156,7 @@ export interface AppSettings {
     language: "id" | "en";
     cameraDeviceId?: string;
     cameraResolution?: "auto" | "320x240" | "640x360" | "640x480" | "1280x720";
+    cameraBackend?: "auto" | "ffmpeg-dshow" | "webrtc";
   };
 }
 

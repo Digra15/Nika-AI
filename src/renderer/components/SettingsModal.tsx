@@ -937,6 +937,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <option value="auto">Auto (Default Kamera)</option>
                   </select>
                 </label>
+                <label className="nika-field">
+                  Backend Kamera
+                  <select
+                    className="nika-select"
+                    value={draft.ui.cameraBackend ?? "ffmpeg-dshow"}
+                    onChange={(e) =>
+                      applyInstant({
+                        ...draft,
+                        ui: {
+                          ...draft.ui,
+                          cameraBackend: e.target.value as "auto" | "ffmpeg-dshow" | "webrtc"
+                        }
+                      })
+                    }
+                  >
+                    <option value="ffmpeg-dshow">DirectShow (ffmpeg - Bypass Crash)</option>
+                    <option value="auto">Auto (WebRTC + Fallback ffmpeg)</option>
+                    <option value="webrtc">Browser WebRTC (getUserMedia)</option>
+                  </select>
+                </label>
               </div>
             )}
           </div>
