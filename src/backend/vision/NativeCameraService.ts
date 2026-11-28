@@ -190,13 +190,13 @@ export class NativeCameraService {
         "-i",
         `video=${deviceName}`,
         "-vf",
-        "fps=5,scale=640:-1",
+        "fps=20,scale=640:-1",
         "-f",
         "image2pipe",
         "-vcodec",
         "mjpeg",
         "-q:v",
-        "6",
+        "7",
         "pipe:1"
       ];
 

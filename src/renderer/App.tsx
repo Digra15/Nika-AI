@@ -87,7 +87,8 @@ export default function App() {
   const cameraPreviewRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraBusyRef = useRef(false);
-  const [nativeCameraFrame, setNativeCameraFrame] = useState<string | null>(null);
+  const [nativeCameraActive, setNativeCameraActive] = useState(false);
+  const nativeCameraImgRef = useRef<HTMLImageElement | null>(null);
   const nativeCameraActiveRef = useRef(false);
   const [booting, setBooting] = useState(() => Boolean(typeof window !== "undefined" && window.nikaAPI));
   const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
@@ -391,13 +392,13 @@ export default function App() {
 
   useEffect(() => {
     const offFrame = window.nikaAPI?.onNativeCameraFrame?.((b64) => {
-      if (nativeCameraActiveRef.current) {
-        setNativeCameraFrame(b64);
+      if (nativeCameraActiveRef.current && nativeCameraImgRef.current) {
+        nativeCameraImgRef.current.src = `data:image/jpeg;base64,${b64}`;
       }
     });
     const offErr = window.nikaAPI?.onNativeCameraError?.((reason) => {
       nativeCameraActiveRef.current = false;
-      setNativeCameraFrame(null);
+      setNativeCameraActive(false);
       setCameraActive(false);
       setCameraError(reason);
     });
@@ -417,6 +418,7 @@ export default function App() {
         deviceName = devs.find((d) => d.kind === "videoinput" && d.deviceId === targetId)?.label || undefined;
       }
       nativeCameraActiveRef.current = true;
+      setNativeCameraActive(true);
       await window.nikaAPI.startNativeCamera({
         deviceName,
         resolution: settingsRef.current?.ui.cameraResolution ?? "1280x720"
@@ -426,7 +428,7 @@ export default function App() {
       return true;
     } catch (err) {
       nativeCameraActiveRef.current = false;
-      setNativeCameraFrame(null);
+      setNativeCameraActive(false);
       const msg = err instanceof Error ? err.message : String(err);
       setCameraActive(false);
       setCameraError(msg);
@@ -443,7 +445,7 @@ export default function App() {
         cameraStreamRef.current = null;
         if (nativeCameraActiveRef.current) {
           nativeCameraActiveRef.current = false;
-          setNativeCameraFrame(null);
+          setNativeCameraActive(false);
           await window.nikaAPI?.stopNativeCamera?.();
         }
         setCameraActive(false);
@@ -862,9 +864,9 @@ export default function App() {
             </div>
           )}
 
-          {cameraActive && nativeCameraFrame ? (
+          {cameraActive && nativeCameraActive ? (
             <img
-              src={`data:image/jpeg;base64,${nativeCameraFrame}`}
+              ref={nativeCameraImgRef}
               alt="Camera Preview"
               style={{
                 position: "absolute",
