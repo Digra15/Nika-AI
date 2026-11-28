@@ -1,13 +1,15 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification } from "electron";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { DesktopControlService } from "../backend/agent-skills/DesktopControlService.js";
 import { GameCompanionService } from "../backend/agent-skills/GameCompanionService.js";
 import { KnowledgeAssistantService } from "../backend/agent-skills/KnowledgeAssistantService.js";
+import { SystemOpsService } from "../backend/agent-skills/SystemOpsService.js";
 import { registerDesktopTools } from "../backend/agent-skills/registerDesktopTools.js";
 import { registerGameTools } from "../backend/agent-skills/registerGameTools.js";
 import { registerKnowledgeTools } from "../backend/agent-skills/registerKnowledgeTools.js";
+import { registerSystemOpsTools } from "../backend/agent-skills/registerSystemOpsTools.js";
 import { NikaBrain } from "../backend/ai/brain/NikaBrain.js";
 import { registerBrainTools } from "../backend/ai/brain/registerBrainTools.js";
 import { OpenAICompatibleProvider } from "../backend/ai/providers/OpenAICompatibleProvider.js";
@@ -117,6 +119,22 @@ const agentBrowser = new AgentBrowserService(PROJECT_ROOT);
 const desktopControl = new DesktopControlService(PROJECT_ROOT);
 const gameCompanion = new GameCompanionService();
 const knowledgeAssistant = new KnowledgeAssistantService(app.getPath("userData"));
+const sendDesktopNotification = async (
+  title: string,
+  body: string
+): Promise<{ sent: boolean; channel: string }> => {
+  if (Notification.isSupported()) {
+    new Notification({ title, body }).show();
+    return { sent: true, channel: "electron-notification" };
+  }
+  logger.info(`[Notification] ${title}: ${body}`);
+  return { sent: true, channel: "logger-fallback" };
+};
+const systemOps = new SystemOpsService(app.getPath("userData"), {
+  onTaskTriggered: (task) => {
+    void sendDesktopNotification(`NIKA Reminder: ${task.title}`, task.instruction);
+  }
+});
 const sharedProvider = new OpenAICompatibleProvider();
 const toolRegistry = new ToolRegistry();
 const nikaBrain = new NikaBrain(sharedProvider, toolRegistry);
@@ -244,6 +262,47 @@ registerKnowledgeTools({
   knowledgeService: knowledgeAssistant,
   browserService: agentBrowser,
   desktopControl
+});
+registerSystemOpsTools({
+  registry: toolRegistry,
+  systemOps,
+  sendNotification: sendDesktopNotification,
+  recoverSubsystem: async (target) => {
+    const recovered: string[] = [];
+    const errors: string[] = [];
+    const runVoice = target === "voice_sidecar" || target === "all";
+    const runCam = target === "native_camera" || target === "all";
+    const runBrowser = target === "browser" || target === "all";
+
+    if (runVoice) {
+      try {
+        voiceSidecar.stop();
+        await voiceSidecar.start(configManager.getSettings().voice);
+        recovered.push("voice_sidecar");
+      } catch (err) {
+        errors.push(`voice_sidecar: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (runCam) {
+      try {
+        nativeCamera.stop();
+        liveVisionState.camera = false;
+        latestCameraFrame = null;
+        recovered.push("native_camera");
+      } catch (err) {
+        errors.push(`native_camera: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (runBrowser) {
+      try {
+        await agentBrowser.close();
+        recovered.push("browser");
+      } catch (err) {
+        errors.push(`browser: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return { recovered, errors };
+  }
 });
 const aiClient = new NineRouterClient();
 aiClient.setHistory(memoryManager.getRecentHistory());
@@ -664,6 +723,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  systemOps.dispose();
   nativeCamera.stop();
   void agentBrowser.close();
   voiceSidecar.stop();

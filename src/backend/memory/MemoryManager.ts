@@ -463,7 +463,8 @@ export class MemoryManager {
       `- web-agent: gunakan web_news untuk berita/headline hari ini, web_search untuk pencarian umum, dan web_browse untuk membuka serta membaca isi halaman/artikel secara langsung (jangan pernah berhenti hanya di daftar nama situs).`,
       `- desktop-automation: gunakan computer_use (aplikasi/mouse/keyboard), playwright_automate (otomatisasi website multi-langkah), file_list/file_read/file_write/file_delete (file-manager), terminal_run (PowerShell), screen_understand (melihat layar), dan camera_see (melihat lewat webcam).`,
       `- game-companion: gunakan game_screen_vision (baca HUD/layar game), game_state_detect (deteksi fase game), game_strategy (saran taktis), game_event_react (reaksi kemenangan/kalah/boss), dan game_control (kontrol input game WASD/mouse).`,
-      `- knowledge-research: gunakan web_research (riset internet mendalam & baca halaman), document_read (baca PDF/DOCX/dokumen), code_assist (cari kode/inspeksi/cek pemrograman), knowledge_manage (kelola basis pengetahuan lokal), dan fact_check (verifikasi kebenaran klaim dengan bukti).`
+      `- knowledge-research: gunakan web_research (riset internet mendalam & baca halaman), document_read (baca PDF/DOCX/dokumen), code_assist (cari kode/inspeksi/cek pemrograman), knowledge_manage (kelola basis pengetahuan lokal), dan fact_check (verifikasi kebenaran klaim dengan bukti).`,
+      `- system-ops: gunakan system_monitor (pantau CPU/RAM/GPU), task_schedule (jadwalkan tugas/pengingat), notify_send (kirim notifikasi desktop), error_recover (pulihkan proses voice/camera/browser yang gagal), dan permission_manage (atur izin tindakan agent).`
     );
 
     if (contextAnalysis) {
